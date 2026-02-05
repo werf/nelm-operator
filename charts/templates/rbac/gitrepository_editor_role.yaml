@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "nelm-helm-controller.labels" . | nindent 4 }}
+  name: {{ include "nelm-operator.fullname" . }}-gitrepository-editor-role
+rules:
+- apiGroups:
+  - source.werf.io
+  resources:
+  - gitrepositories
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - source.werf.io
+  resources:
+  - gitrepositories/status
+  verbs:
+  - get
