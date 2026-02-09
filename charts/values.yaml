@@ -1,0 +1,142 @@
+# This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+imagePullSecrets: []
+
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: ""
+
+sourceController:
+  replicaCount: 1
+
+  image:
+    repository: registry.werf.io/nelm/source-controller
+    pullPolicy: IfNotPresent
+    tag: v0.1.4
+
+  podAnnotations:
+    prometheus.io/port: "8080"
+    prometheus.io/scrape: "true"
+
+  podLabels: {}
+
+  podSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    fsGroup: 1337
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: healthz
+
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
+
+  volumes:
+    - emptyDir: {}
+      name: data
+    - emptyDir: {}
+      name: tmp
+
+  volumeMounts:
+    - mountPath: /data
+      name: data
+    - mountPath: /tmp
+      name: tmp
+
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}
+
+helmController:
+  replicaCount: 1
+
+  image:
+    repository: registry.werf.io/nelm/helm-controller
+    pullPolicy: IfNotPresent
+    tag: v0.1.3
+
+  podAnnotations:
+    prometheus.io/port: "8080"
+    prometheus.io/scrape: "true"
+
+  podLabels: {}
+
+  podSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    fsGroup: 1337
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: healthz
+
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: healthz
+
+  volumes:
+    - emptyDir: {}
+      name: temp
+
+  volumeMounts:
+    - mountPath: /tmp
+      name: temp
+
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
