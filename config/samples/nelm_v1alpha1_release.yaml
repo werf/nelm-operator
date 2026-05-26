@@ -1,0 +1,22 @@
+apiVersion: nelm.werf.io/v1alpha1
+kind: Release
+metadata:
+  labels:
+    app.kubernetes.io/name: nelm-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: release-sample
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: my-chart
+      version: "1.0.0"
+      interval: 5m
+      sourceRef:
+        kind: HelmRepository
+        name: my-repo
+  install:
+    autoRollback: true
+    retries: 3
+  tracking:
+    readinessTimeout: 5m
