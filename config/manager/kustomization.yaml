@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: nelm-operator
-  newTag: dev
+  newTag: dev12

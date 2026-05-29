@@ -54,59 +54,54 @@ spec:
                 type: string
               chart:
                 properties:
-                  spec:
+                  interval:
+                    default: 1m
+                    type: string
+                  name:
+                    type: string
+                  reconcileStrategy:
+                    default: ChartVersion
+                    enum:
+                    - ChartVersion
+                    - Revision
+                    type: string
+                  sourceRef:
                     properties:
-                      chart:
-                        type: string
-                      interval:
-                        default: 1m
-                        type: string
-                      reconcileStrategy:
-                        default: ChartVersion
+                      kind:
                         enum:
-                        - ChartVersion
-                        - Revision
+                        - HelmRepository
+                        - GitRepository
+                        - Bucket
                         type: string
-                      sourceRef:
-                        properties:
-                          kind:
-                            enum:
-                            - HelmRepository
-                            - GitRepository
-                            - Bucket
-                            type: string
-                          name:
-                            type: string
-                          namespace:
-                            type: string
-                        required:
-                        - kind
-                        - name
-                        type: object
-                      verify:
-                        properties:
-                          provider:
-                            enum:
-                            - cosign
-                            type: string
-                          secretRef:
-                            properties:
-                              name:
-                                type: string
-                            required:
-                            - name
-                            type: object
-                        required:
-                        - provider
-                        type: object
-                      version:
+                      name:
+                        type: string
+                      namespace:
                         type: string
                     required:
-                    - chart
-                    - sourceRef
+                    - kind
+                    - name
                     type: object
+                  verify:
+                    properties:
+                      provider:
+                        enum:
+                        - cosign
+                        type: string
+                      secretRef:
+                        properties:
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    required:
+                    - provider
+                    type: object
+                  version:
+                    type: string
                 required:
-                - spec
+                - name
+                - sourceRef
                 type: object
               chartRef:
                 properties:

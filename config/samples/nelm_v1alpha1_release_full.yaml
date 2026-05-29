@@ -1,0 +1,158 @@
+# Full Release example with all supported fields.
+# Most fields are optional — see nelm_v1alpha1_release.yaml for a minimal example.
+apiVersion: nelm.werf.io/v1alpha1
+kind: Release
+metadata:
+  name: myapp
+  namespace: production
+spec:
+  # --- Chart source (exactly one of chart or chartRef must be set) ---
+
+  # Option 1: Inline chart template — operator creates and manages a HelmChart object.
+  chart:
+    spec:
+      chart: myapp
+      version: "2.1.0"
+      sourceRef:
+        kind: HelmRepository        # HelmRepository | GitRepository | Bucket
+        name: my-repo
+        namespace: flux-system       # optional, defaults to Release namespace
+      interval: 10m
+      reconcileStrategy: ChartVersion  # ChartVersion | Revision
+      verify:                        # optional, chart verification
+        provider: cosign
+        secretRef:
+          name: cosign-public-key
+
+  # Option 2: Reference to a pre-existing source object (mutually exclusive with chart).
+  # chartRef:
+  #   kind: HelmChart              # HelmChart | OCIRepository
+  #   name: my-existing-chart
+  #   namespace: flux-system       # optional, defaults to Release namespace
+
+  # --- Target ---
+  targetNamespace: myapp-prod       # namespace to deploy into (defaults to metadata.namespace)
+  interval: 5m                      # drift reconciliation interval
+  timeout: 30m                      # global timeout (overridable per action below)
+  suspend: false                    # skip reconciliation when true
+
+  # --- Values ---
+  values:                           # inline values (any YAML)
+    replicaCount: 3
+    image:
+      repository: myregistry.io/myapp
+      tag: "2.1.0"
+    ingress:
+      enabled: true
+      hosts:
+        - host: myapp.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+
+  valuesFrom:                       # values from ConfigMaps/Secrets (merged in order)
+    - kind: ConfigMap
+      name: myapp-values
+      dataKey: values.yaml          # key in the ConfigMap/Secret data (default: values.yaml)
+      optional: false               # fail if missing (default: false)
+    - kind: Secret
+      name: myapp-db-credentials
+      dataKey: db-values.yaml
+      optional: true                # skip silently if missing
+
+  defaultValues: true               # include chart's default values (default: true)
+
+  setRootContextJSON:               # JSON patches applied to root values context
+    - '{"global.environment": "production"}'
+
+  # --- Secret values (encrypted) ---
+  secretKeyFrom:                    # decryption key for encrypted values
+    kind: Secret                    # always Secret
+    name: myapp-secret-key
+    dataKey: key                    # key in the Secret data (default: key)
+
+  secretValuesFrom:                 # encrypted values files
+    - kind: Secret
+      name: myapp-encrypted-values
+      dataKey: secret-values.yaml
+      optional: false
+
+  defaultSecretValues: true         # include chart's default secret values (default: true)
+
+  # --- Install/upgrade configuration ---
+  install:
+    timeout: 15m                    # overrides spec.timeout for install
+    autoRollback: true              # rollback to previous revision on failure
+    retries: 3                      # retry failed installs up to N times before stalling
+    installCRDs: true               # install standalone CRDs from chart (default: true)
+    deletePropagation: Background   # Background | Foreground | Orphan
+    forceAdoption: true             # adopt existing resources (default: true)
+    removeManualChanges: true       # revert manual changes to managed resources (default: true)
+    templatesAllowDNS: false        # allow DNS lookups in chart templates
+
+  # --- Rollback configuration ---
+  rollback:
+    timeout: 10m                    # overrides spec.timeout for rollback
+    deletePropagation: Background
+    forceAdoption: true
+    removeManualChanges: true
+
+  # --- Uninstall configuration ---
+  uninstall:
+    timeout: 10m                    # overrides spec.timeout for uninstall
+    deleteNamespace: false          # delete the target namespace on uninstall
+    deletePropagation: Background
+    removeManualChanges: true
+
+  # --- Resource labels and annotations ---
+  extraAnnotations:                 # added to all deployed resources
+    team: platform
+  extraLabels:                      # added to all deployed resources
+    app.kubernetes.io/part-of: myapp
+  runtimeAnnotations:               # added at runtime (not stored in release)
+    deploy.werf.io/trigger: "true"
+  runtimeLabels:                    # added at runtime (not stored in release)
+    deploy.werf.io/env: production
+  releaseInfoAnnotations:           # added to the Helm release secret
+    release-owner: platform-team
+  releaseLabels:                    # added to the Helm release secret
+    managed-by: nelm-operator
+  appVersion: "2.1.0"              # override chart's appVersion
+
+  # --- Tracking ---
+  tracking:
+    readinessTimeout: 5m            # wait for resources to become ready
+    creationTimeout: 3m             # wait for resources to be created
+    deletionTimeout: 3m             # wait for resources to be deleted
+    podLogs: false                  # stream pod logs during tracking (noisy in operator mode)
+    finalTracking: false            # final tracking pass after install
+
+  # --- Provenance ---
+  provenance:
+    strategy: never                 # never | digest | signature
+    keyringFrom:                    # PGP keyring for signature verification
+      kind: Secret
+      name: chart-keyring
+      dataKey: pubring.gpg
+
+  # --- Release storage ---
+  releaseStorage:
+    historyLimit: 10                # max number of release revisions to keep
+
+  # --- Resource validation (kubeconform) ---
+  validation:
+    enabled: true                   # enable schema validation (default: true)
+    valuesSchemaValidation: true    # validate values against values.schema.json (default: true)
+    localOnly: false                # only use local schemas, no HTTP fetching
+    kubeVersion: "1.31.0"           # Kubernetes version for schema validation (has a default)
+    skip:                           # skip validation for specific resources
+      - CustomThing
+    schemas:                        # override default schema sources
+      - https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/{{ .NormalizedKubeVersion }}/{{ .ResourceKind }}{{ .StrictSuffix }}.json
+    extraSchemas:                   # additional schema sources (appended to defaults)
+      - https://my-schemas.example.com/{{ .NormalizedKubeVersion }}/{{ .ResourceKind }}.json
+    schemaCacheLifetime: 48h        # how long to cache downloaded schemas
+
+  # --- TypeScript ---
+  typescript:
+    ignoreBundleJS: false           # ignore bundled JS in TypeScript chart templates
