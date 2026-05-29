@@ -28,13 +28,12 @@ metadata:
 spec:
   interval: 5m
   chart:
-    spec:
-      chart: podinfo
-      version: "6.7.1"
-      interval: 5m
-      sourceRef:
-        kind: HelmRepository
-        name: podinfo
+    name: podinfo
+    version: "6.7.1"
+    interval: 5m
+    sourceRef:
+      kind: HelmRepository
+      name: podinfo
   values:
     replicaCount: 2
     ui:

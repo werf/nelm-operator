@@ -10,19 +10,18 @@ spec:
 
   # Option 1: Inline chart template — operator creates and manages a HelmChart object.
   chart:
-    spec:
-      chart: myapp
-      version: "2.1.0"
-      sourceRef:
-        kind: HelmRepository        # HelmRepository | GitRepository | Bucket
-        name: my-repo
-        namespace: flux-system       # optional, defaults to Release namespace
-      interval: 10m
-      reconcileStrategy: ChartVersion  # ChartVersion | Revision
-      verify:                        # optional, chart verification
-        provider: cosign
-        secretRef:
-          name: cosign-public-key
+    name: myapp
+    version: "2.1.0"
+    sourceRef:
+      kind: HelmRepository          # HelmRepository | GitRepository | Bucket
+      name: my-repo
+      namespace: flux-system         # optional, defaults to Release namespace
+    interval: 10m
+    reconcileStrategy: ChartVersion  # ChartVersion | Revision
+    verify:                          # optional, chart verification
+      provider: cosign
+      secretRef:
+        name: cosign-public-key
 
   # Option 2: Reference to a pre-existing source object (mutually exclusive with chart).
   # chartRef:
