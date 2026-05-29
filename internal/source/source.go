@@ -66,7 +66,7 @@ func resolveChartRef(ctx context.Context, c client.Client, rel *nelmv1alpha1.Rel
 }
 
 func ensureHelmChart(ctx context.Context, c client.Client, rel *nelmv1alpha1.Release, sourceAPIGroup string, sourceAPIVersion string) (*unstructured.Unstructured, error) {
-	chartSpec := rel.Spec.Chart.Spec
+	chart := rel.Spec.Chart
 	chartName := fmt.Sprintf("%s-%s", rel.Namespace, rel.Name)
 
 	gvk := schema.GroupVersionKind{
@@ -75,7 +75,7 @@ func ensureHelmChart(ctx context.Context, c client.Client, rel *nelmv1alpha1.Rel
 		Kind:    "HelmChart",
 	}
 
-	desired := buildHelmChartObject(rel, chartSpec, chartName, gvk, sourceAPIGroup)
+	desired := buildHelmChartObject(rel, chart, chartName, gvk, sourceAPIGroup)
 
 	if err := c.Patch(ctx, desired, client.Apply, client.FieldOwner("nelm-operator"), client.ForceOwnership); err != nil {
 		return nil, fmt.Errorf("apply HelmChart: %w", err)
@@ -84,7 +84,7 @@ func ensureHelmChart(ctx context.Context, c client.Client, rel *nelmv1alpha1.Rel
 	return desired, nil
 }
 
-func buildHelmChartObject(rel *nelmv1alpha1.Release, chartSpec nelmv1alpha1.ReleaseChartSpec, name string, gvk schema.GroupVersionKind, sourceAPIGroup string) *unstructured.Unstructured {
+func buildHelmChartObject(rel *nelmv1alpha1.Release, chart *nelmv1alpha1.ReleaseChart, name string, gvk schema.GroupVersionKind, sourceAPIGroup string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(gvk)
 	obj.SetName(name)
@@ -101,34 +101,34 @@ func buildHelmChartObject(rel *nelmv1alpha1.Release, chartSpec nelmv1alpha1.Rele
 	})
 
 	sourceRef := map[string]interface{}{
-		"kind": chartSpec.SourceRef.Kind,
-		"name": chartSpec.SourceRef.Name,
+		"kind": chart.SourceRef.Kind,
+		"name": chart.SourceRef.Name,
 	}
-	if chartSpec.SourceRef.Namespace != "" {
-		sourceRef["namespace"] = chartSpec.SourceRef.Namespace
+	if chart.SourceRef.Namespace != "" {
+		sourceRef["namespace"] = chart.SourceRef.Namespace
 	}
 
 	spec := map[string]interface{}{
-		"chart":     chartSpec.Chart,
-		"interval":  chartSpec.Interval.Duration.String(),
+		"chart":     chart.Name,
+		"interval":  chart.Interval.Duration.String(),
 		"sourceRef": sourceRef,
 	}
 
-	if chartSpec.Version != "" {
-		spec["version"] = chartSpec.Version
+	if chart.Version != "" {
+		spec["version"] = chart.Version
 	}
 
-	if chartSpec.ReconcileStrategy != "" {
-		spec["reconcileStrategy"] = chartSpec.ReconcileStrategy
+	if chart.ReconcileStrategy != "" {
+		spec["reconcileStrategy"] = chart.ReconcileStrategy
 	}
 
-	if chartSpec.Verify != nil {
+	if chart.Verify != nil {
 		verify := map[string]interface{}{
-			"provider": chartSpec.Verify.Provider,
+			"provider": chart.Verify.Provider,
 		}
-		if chartSpec.Verify.SecretRef != nil {
+		if chart.Verify.SecretRef != nil {
 			verify["secretRef"] = map[string]interface{}{
-				"name": chartSpec.Verify.SecretRef.Name,
+				"name": chart.Verify.SecretRef.Name,
 			}
 		}
 		spec["verify"] = verify

@@ -142,11 +142,7 @@ type ReleaseSpec struct {
 }
 
 type ReleaseChart struct {
-	Spec ReleaseChartSpec `json:"spec"`
-}
-
-type ReleaseChartSpec struct {
-	Chart string `json:"chart"`
+	Name string `json:"name"`
 
 	// +optional
 	Version string `json:"version,omitempty"`
