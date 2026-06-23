@@ -379,12 +379,8 @@ func (r *ReleaseReconciler) buildValidationOptions(rel *nelmv1alpha1.Release) co
 	}
 
 	v := rel.Spec.Validation
-	if v.Enabled != nil {
-		opts.NoResourceValidation = !*v.Enabled
-	}
-	if v.ValuesSchemaValidation != nil {
-		opts.NoValuesSchemaValidation = !*v.ValuesSchemaValidation
-	}
+	opts.NoResourceValidation = v.NoResourceValidation
+	opts.NoValuesSchemaValidation = v.NoValuesSchemaValidation
 	opts.LocalResourceValidation = v.LocalOnly
 	if v.KubeVersion != "" {
 		opts.ValidationKubeVersion = v.KubeVersion
@@ -416,16 +412,10 @@ func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release) commo
 
 	if rel.Spec.Install != nil {
 		install := rel.Spec.Install
-		if install.InstallCRDs != nil {
-			opts.NoInstallStandaloneCRDs = !*install.InstallCRDs
-		}
+		opts.NoInstallStandaloneCRDs = install.NoInstallCRDs
 		opts.DefaultDeletePropagation = install.DeletePropagation
-		if install.ForceAdoption != nil {
-			opts.ForceAdoption = *install.ForceAdoption
-		}
-		if install.RemoveManualChanges != nil {
-			opts.NoRemoveManualChanges = !*install.RemoveManualChanges
-		}
+		opts.ForceAdoption = !install.NoForceAdoption
+		opts.NoRemoveManualChanges = install.NoRemoveManualChanges
 	}
 
 	return opts
@@ -437,9 +427,7 @@ func (r *ReleaseReconciler) buildValuesOptions(rel *nelmv1alpha1.Release, resolv
 		RootSetJSON: rel.Spec.SetRootContextJSON,
 	}
 
-	if rel.Spec.DefaultValues != nil {
-		opts.DefaultValuesDisable = !*rel.Spec.DefaultValues
-	}
+	opts.DefaultValuesDisable = rel.Spec.NoDefaultValues
 
 	return opts
 }
@@ -450,9 +438,7 @@ func (r *ReleaseReconciler) buildSecretValuesOptions(rel *nelmv1alpha1.Release, 
 		SecretValuesFiles: resolvedValues.SecretValuesFiles,
 	}
 
-	if rel.Spec.DefaultSecretValues != nil {
-		opts.DefaultSecretValuesDisable = !*rel.Spec.DefaultSecretValues
-	}
+	opts.DefaultSecretValuesDisable = rel.Spec.NoDefaultSecretValues
 
 	return opts
 }
@@ -523,12 +509,8 @@ func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, temp
 	if rel.Spec.Rollback != nil {
 		rb := rel.Spec.Rollback
 		opts.DefaultDeletePropagation = rb.DeletePropagation
-		if rb.ForceAdoption != nil {
-			opts.ForceAdoption = *rb.ForceAdoption
-		}
-		if rb.RemoveManualChanges != nil {
-			opts.NoRemoveManualChanges = !*rb.RemoveManualChanges
-		}
+		opts.ForceAdoption = !rb.NoForceAdoption
+		opts.NoRemoveManualChanges = rb.NoRemoveManualChanges
 	}
 
 	return opts
@@ -553,9 +535,7 @@ func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tem
 		un := rel.Spec.Uninstall
 		opts.DeleteReleaseNamespace = un.DeleteNamespace
 		opts.DefaultDeletePropagation = un.DeletePropagation
-		if un.RemoveManualChanges != nil {
-			opts.NoRemoveManualChanges = !*un.RemoveManualChanges
-		}
+		opts.NoRemoveManualChanges = un.NoRemoveManualChanges
 	}
 
 	return opts
