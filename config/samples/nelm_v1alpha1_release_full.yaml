@@ -59,7 +59,7 @@ spec:
       dataKey: db-values.yaml
       optional: true                # skip silently if missing
 
-  defaultValues: true               # include chart's default values (default: true)
+  noDefaultValues: false            # disable chart's default values (default: false)
 
   setRootContextJSON:               # JSON patches applied to root values context
     - '{"global.environment": "production"}'
@@ -76,32 +76,32 @@ spec:
       dataKey: secret-values.yaml
       optional: false
 
-  defaultSecretValues: true         # include chart's default secret values (default: true)
+  noDefaultSecretValues: false      # disable chart's default secret values (default: false)
 
   # --- Install/upgrade configuration ---
   install:
     timeout: 15m                    # overrides spec.timeout for install
     autoRollback: true              # rollback to previous revision on failure
     retries: 3                      # retry failed installs up to N times before stalling
-    installCRDs: true               # install standalone CRDs from chart (default: true)
+    noInstallCRDs: false            # skip installing standalone CRDs from chart (default: false)
     deletePropagation: Background   # Background | Foreground | Orphan
-    forceAdoption: true             # adopt existing resources (default: true)
-    removeManualChanges: true       # revert manual changes to managed resources (default: true)
+    noForceAdoption: false          # disable adopting existing resources (default: false)
+    noRemoveManualChanges: false    # preserve manual changes to managed resources (default: false)
     templatesAllowDNS: false        # allow DNS lookups in chart templates
 
   # --- Rollback configuration ---
   rollback:
     timeout: 10m                    # overrides spec.timeout for rollback
     deletePropagation: Background
-    forceAdoption: true
-    removeManualChanges: true
+    noForceAdoption: false
+    noRemoveManualChanges: false
 
   # --- Uninstall configuration ---
   uninstall:
     timeout: 10m                    # overrides spec.timeout for uninstall
     deleteNamespace: false          # delete the target namespace on uninstall
     deletePropagation: Background
-    removeManualChanges: true
+    noRemoveManualChanges: false
 
   # --- Resource labels and annotations ---
   extraAnnotations:                 # added to all deployed resources
@@ -140,8 +140,8 @@ spec:
 
   # --- Resource validation (kubeconform) ---
   validation:
-    enabled: true                   # enable schema validation (default: true)
-    valuesSchemaValidation: true    # validate values against values.schema.json (default: true)
+    noResourceValidation: false     # disable resource schema validation (default: false)
+    noValuesSchemaValidation: false # disable validating values against values.schema.json (default: false)
     localOnly: false                # only use local schemas, no HTTP fetching
     kubeVersion: "1.31.0"           # Kubernetes version for schema validation (has a default)
     skip:                           # skip validation for specific resources

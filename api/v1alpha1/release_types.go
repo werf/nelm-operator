@@ -78,9 +78,8 @@ type ReleaseSpec struct {
 	// +optional
 	ValuesFrom []ValuesReference `json:"valuesFrom,omitempty"`
 
-	// +kubebuilder:default=true
 	// +optional
-	DefaultValues *bool `json:"defaultValues,omitempty"`
+	NoDefaultValues bool `json:"noDefaultValues,omitempty"`
 
 	// +optional
 	SetRootContextJSON []string `json:"setRootContextJSON,omitempty"`
@@ -91,9 +90,8 @@ type ReleaseSpec struct {
 	// +optional
 	SecretValuesFrom []ValuesReference `json:"secretValuesFrom,omitempty"`
 
-	// +kubebuilder:default=true
 	// +optional
-	DefaultSecretValues *bool `json:"defaultSecretValues,omitempty"`
+	NoDefaultSecretValues bool `json:"noDefaultSecretValues,omitempty"`
 
 	// +optional
 	Install *InstallConfig `json:"install,omitempty"`
@@ -227,22 +225,19 @@ type InstallConfig struct {
 	// +optional
 	AutoRollback bool `json:"autoRollback,omitempty"`
 
-	// +kubebuilder:default=true
 	// +optional
-	InstallCRDs *bool `json:"installCRDs,omitempty"`
+	NoInstallCRDs bool `json:"noInstallCRDs,omitempty"`
 
 	// +kubebuilder:default="Background"
 	// +kubebuilder:validation:Enum=Background;Foreground;Orphan
 	// +optional
 	DeletePropagation string `json:"deletePropagation,omitempty"`
 
-	// +kubebuilder:default=true
 	// +optional
-	ForceAdoption *bool `json:"forceAdoption,omitempty"`
+	NoForceAdoption bool `json:"noForceAdoption,omitempty"`
 
-	// +kubebuilder:default=true
 	// +optional
-	RemoveManualChanges *bool `json:"removeManualChanges,omitempty"`
+	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
 
 	// +optional
 	TemplatesAllowDNS bool `json:"templatesAllowDNS,omitempty"`
@@ -260,13 +255,11 @@ type RollbackConfig struct {
 	// +optional
 	DeletePropagation string `json:"deletePropagation,omitempty"`
 
-	// +kubebuilder:default=true
 	// +optional
-	ForceAdoption *bool `json:"forceAdoption,omitempty"`
+	NoForceAdoption bool `json:"noForceAdoption,omitempty"`
 
-	// +kubebuilder:default=true
 	// +optional
-	RemoveManualChanges *bool `json:"removeManualChanges,omitempty"`
+	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
 }
 
 type UninstallConfig struct {
@@ -281,9 +274,8 @@ type UninstallConfig struct {
 	// +optional
 	DeletePropagation string `json:"deletePropagation,omitempty"`
 
-	// +kubebuilder:default=true
 	// +optional
-	RemoveManualChanges *bool `json:"removeManualChanges,omitempty"`
+	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
 }
 
 type TrackingConfig struct {
@@ -320,13 +312,11 @@ type ReleaseStorageConfig struct {
 }
 
 type ValidationConfig struct {
-	// +kubebuilder:default=true
 	// +optional
-	Enabled *bool `json:"enabled,omitempty"`
+	NoResourceValidation bool `json:"noResourceValidation,omitempty"`
 
-	// +kubebuilder:default=true
 	// +optional
-	ValuesSchemaValidation *bool `json:"valuesSchemaValidation,omitempty"`
+	NoValuesSchemaValidation bool `json:"noValuesSchemaValidation,omitempty"`
 
 	// +optional
 	LocalOnly bool `json:"localOnly,omitempty"`

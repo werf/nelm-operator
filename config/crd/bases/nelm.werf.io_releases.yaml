@@ -118,12 +118,6 @@ spec:
                 - kind
                 - name
                 type: object
-              defaultSecretValues:
-                default: true
-                type: boolean
-              defaultValues:
-                default: true
-                type: boolean
               extraAnnotations:
                 additionalProperties:
                   type: string
@@ -143,14 +137,11 @@ spec:
                     - Foreground
                     - Orphan
                     type: string
-                  forceAdoption:
-                    default: true
+                  noForceAdoption:
                     type: boolean
-                  installCRDs:
-                    default: true
+                  noInstallCRDs:
                     type: boolean
-                  removeManualChanges:
-                    default: true
+                  noRemoveManualChanges:
                     type: boolean
                   retries:
                     type: integer
@@ -162,6 +153,10 @@ spec:
               interval:
                 default: 1m
                 type: string
+              noDefaultSecretValues:
+                type: boolean
+              noDefaultValues:
+                type: boolean
               provenance:
                 properties:
                   keyringFrom:
@@ -211,11 +206,9 @@ spec:
                     - Foreground
                     - Orphan
                     type: string
-                  forceAdoption:
-                    default: true
+                  noForceAdoption:
                     type: boolean
-                  removeManualChanges:
-                    default: true
+                  noRemoveManualChanges:
                     type: boolean
                   timeout:
                     type: string
@@ -304,17 +297,13 @@ spec:
                     - Foreground
                     - Orphan
                     type: string
-                  removeManualChanges:
-                    default: true
+                  noRemoveManualChanges:
                     type: boolean
                   timeout:
                     type: string
                 type: object
               validation:
                 properties:
-                  enabled:
-                    default: true
-                    type: boolean
                   extraSchemas:
                     items:
                       type: string
@@ -322,6 +311,10 @@ spec:
                   kubeVersion:
                     type: string
                   localOnly:
+                    type: boolean
+                  noResourceValidation:
+                    type: boolean
+                  noValuesSchemaValidation:
                     type: boolean
                   schemaCacheLifetime:
                     type: string
@@ -333,9 +326,6 @@ spec:
                     items:
                       type: string
                     type: array
-                  valuesSchemaValidation:
-                    default: true
-                    type: boolean
                 type: object
               values:
                 x-kubernetes-preserve-unknown-fields: true
