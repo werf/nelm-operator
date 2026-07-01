@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"time"
 
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -139,63 +140,491 @@ type ReleaseSpec struct {
 	Typescript *TypescriptConfig `json:"typescript,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="(has(self.bucket) ? 1 : 0) + (has(self.git) ? 1 : 0) + (has(self.oci) ? 1 : 0) + (has(self.repo) ? 1 : 0) == 1", message="You must specify exactly one of: bucket, git, oci, or repo"
 type ReleaseChart struct {
+	// BucketChartSource defines Helm Chart from S3 bucket.
+	// +optional
+	BucketChartSource *BucketChartSource `json:"bucket,omitempty"`
+
+	// GitRepositoryChartSource defines Helm Chart from Git repository.
+	// +optional
+	GitRepositoryChartSource *GitRepositoryChartSource `json:"git,omitempty"`
+
+	// OCIRepositoryChartSource defines Helm Chart from OCI repository/registry.
+	// +optional
+	OCIRepositoryChartSource *OCIRepositoryChartSource `json:"oci,omitempty"`
+
+	// HelmRepositoryChartSource defines Helm Chart from Helm repository.
+	// +optional
+	HelmRepositoryChartSource *HelmRepositoryChartSource `json:"repo,omitempty"`
+}
+
+type GitRepositoryChartSource struct {
+	// URL specifies the Git repository URL, it can be an HTTP/S or SSH address.
+	// +kubebuilder:validation:Pattern="^(http|https|ssh)://.*$"
+	// +required
+	URL string `json:"url"`
+
+	// Branch to check out, defaults to 'master' if no other field is defined.
+	// +optional
+	Branch string `json:"branch,omitempty"`
+
+	// Tag to check out, takes precedence over Branch.
+	// +optional
+	Tag string `json:"tag,omitempty"`
+
+	// SemVer tag expression to check out, takes precedence over Tag.
+	// +optional
+	SemVer string `json:"semver,omitempty"`
+
+	// Commit SHA to check out, takes precedence over all reference fields.
+	//
+	// This can be combined with Branch to shallow clone the branch, in which
+	// the commit is expected to exist.
+	// +optional
+	Commit string `json:"commit,omitempty"`
+
+	// Reference is the reference to check out; takes precedence over Branch, Tag and SemVer.
+	//
+	// It must be a valid Git reference: https://git-scm.com/docs/git-check-ref-format#_description
+	// Examples: "refs/heads/main", "refs/tags/v0.1.0", "refs/pull/420/head", "refs/merge-requests/1/head"
+	// +optional
+	Reference string `json:"ref,omitempty"`
+
+	// Path specifies path to the Helm Chart in the Git repository.
+	// +required
+	Path string `json:"path"`
+
+	// Alternative list of values files to use as the chart values (values.yaml
+	// is not included by default), expected to be a relative path in the SourceRef.
+	// Values files are merged in the order of this list with the last file overriding
+	// the first. Ignored when omitted.
+	// +optional
+	ValuesFiles []string `json:"valuesFiles,omitempty"`
+
+	// TODO: double check if we support such case with nelm.
+	// IgnoreMissingValuesFiles controls whether to silently ignore missing values files rather than failing.
+	// +optional
+	IgnoreMissingValuesFiles bool `json:"ignoreMissingValuesFiles,omitempty"`
+
+	// CredentialsFrom specifies the Secret containing authentication credentials for
+	// the GitRepository.
+	// For HTTPS repositories the Secret must contain 'username' and 'password'
+	// fields for basic auth or 'bearerToken' field for token auth.
+	// For SSH repositories the Secret must contain 'identity'
+	// and 'known_hosts' fields.
+	// +optional
+	CredentialsFrom *CredentialReference `json:"credentialsFrom,omitempty"`
+
+	// Provider used for authentication, can be 'azure', 'github', 'generic'.
+	// When not specified, defaults to 'generic'.
+	// +kubebuilder:validation:Enum=generic;azure;github
+	// +optional
+	Provider string `json:"provider,omitempty"`
+
+	// ServiceAccountName is the name of the Kubernetes ServiceAccount used to
+	// authenticate to the GitRepository. This field is only supported for 'azure' and 'aws' providers.
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// ProxySettingsFrom specifies the Secret containing the proxy configuration
+	// to use while communicating with the Git server.
+	// +optional
+	ProxySettingsFrom *ProxySettingsReference `json:"proxySettingsFrom,omitempty"`
+
+	// Submodules enables the initialization of all submodules within
+	// the GitRepository as cloned from the URL, using their default settings.
+	// +optional
+	Submodules bool `json:"Submodules,omitempty"`
+
+	// SparseCheckout specifies a list of directories to checkout when cloning
+	// the repository. If specified, only these directories are included in the
+	// Artifact produced for this GitRepository.
+	// +optional
+	SparseCheckout []string `json:"sparseCheckout,omitempty"`
+
+	// Ignore overrides the set of excluded patterns in the .sourceignore format
+	// (which is the same as .gitignore). If not provided, a default will be used,
+	// consult the documentation for your version to find out what those are.
+	// +optional
+	Ignore *string `json:"ignore,omitempty"`
+
+	// Verification specifies the configuration to verify the Git commit
+	// signature(s).
+	// +optional
+	Verification *sourcev1.GitRepositoryVerification `json:"verify,omitempty"`
+
+	// Include specifies a list of GitRepository resources which Artifacts
+	// should be included in the Artifact produced for this GitRepository.
+	// +optional
+	Include []sourcev1.GitRepositoryInclude `json:"include,omitempty"`
+
+	// TODO: per task requirements, below field must use value from release object if it is not set.
+	// Interval at which the GitRepository URL is checked for updates.
+	// This interval is approximate and may be subject to jitter to ensure
+	// efficient use of resources.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
+	// +optional
+	Interval metav1.Duration `json:"interval"`
+
+	// Timeout for Git operations like cloning, defaults to 60s.
+	// +kubebuilder:default="60s"
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m))+$"
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
+	// ReconcileStrategy determines what enables the creation of a new artifact.
+	// Valid values are ('ChartVersion', 'Revision').
+	// See the documentation of the values for an explanation on their behavior.
+	// Defaults to ChartVersion when omitted.
+	// +kubebuilder:validation:Enum=ChartVersion;Revision
+	// +kubebuilder:default:=ChartVersion
+	// +optional
+	ReconcileStrategy string `json:"reconcileStrategy,omitempty"`
+}
+
+type OCIRepositoryChartSource struct {
+	// URL is a reference to an OCI artifact repository hosted
+	// on a remote container registry.
+	// +kubebuilder:validation:Pattern="^oci://.*$"
+	// +required
+	URL string `json:"url"`
+
+	// Tag is the image tag to pull, defaults to latest.
+	// +optional
+	Tag string `json:"tag,omitempty"`
+
+	// SemVer is the range of tags to pull selecting the latest within
+	// the range, takes precedence over Tag.
+	// +optional
+	SemVer string `json:"semver,omitempty"`
+
+	// Digest is the image digest to pull, takes precedence over SemVer.
+	// The value should be in the format 'sha256:<HASH>'.
+	// +optional
+	Digest string `json:"digest,omitempty"`
+
+	// SemverFilter is a regex pattern to filter the tags within the SemVer range.
+	// +optional
+	SemverFilter string `json:"semverFilter,omitempty"`
+
+	// CredentialsFrom contains the secret name containing the registry login
+	// credentials to resolve image metadata.
+	// The secret must be of type kubernetes.io/dockerconfigjson.
+	// +optional
+	CredentialsFrom *CredentialReference `json:"credentialsFrom,omitempty"`
+
+	// CertificateFrom can be given the name of a Secret containing
+	// either or both of
+	//
+	// - a PEM-encoded client certificate (`tls.crt`) and private
+	// key (`tls.key`);
+	// - a PEM-encoded CA certificate (`ca.crt`)
+	//
+	// and whichever are supplied, will be used for connecting to the
+	// registry. The client cert and key are useful if you are
+	// authenticating with a certificate; the CA cert is useful if
+	// you are using a self-signed server certificate. The Secret must
+	// be of type `Opaque` or `kubernetes.io/tls`.
+	// +optional
+	CertificateFrom *CertificateReference `json:"certificateFrom,omitempty"`
+
+	// ProxySettingsFrom specifies the Secret containing the proxy configuration
+	// to use while communicating with the container registry.
+	// +optional
+	ProxySettingsFrom *ProxySettingsReference `json:"proxySettingsFrom,omitempty"`
+
+	// ServiceAccountName is the name of the Kubernetes ServiceAccount used to authenticate
+	// the image pull if the service account has attached pull secrets. For more information:
+	// https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#add-imagepullsecrets-to-a-service-account
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// The provider used for authentication, can be 'aws', 'azure', 'gcp' or 'generic'.
+	// When not specified, defaults to 'generic'.
+	// +kubebuilder:validation:Enum=generic;aws;azure;gcp
+	// +kubebuilder:default:=generic
+	// +optional
+	Provider string `json:"provider,omitempty"`
+
+	// Insecure allows connecting to a non-TLS HTTP container registry.
+	// +optional
+	Insecure bool `json:"insecure,omitempty"`
+
+	// Ignore overrides the set of excluded patterns in the .sourceignore format
+	// (which is the same as .gitignore). If not provided, a default will be used,
+	// consult the documentation for your version to find out what those are.
+	// +optional
+	Ignore *string `json:"ignore,omitempty"`
+
+	// LayerSelector specifies which layer should be extracted from the OCI artifact.
+	// When not specified, the first layer found in the artifact is selected.
+	// +optional
+	LayerSelector *sourcev1.OCILayerSelector `json:"layerSelector,omitempty"`
+
+	// Verify contains the secret name containing the trusted public keys
+	// used to verify the signature and specifies which provider to use to check
+	// whether OCI image is authentic.
+	// +optional
+	Verify *sourcev1.OCIRepositoryVerification `json:"verify,omitempty"`
+
+	// TODO: per task requirements, below field must use value from release object if it is not set.
+	// Interval at which the OCIRepository URL is checked for updates.
+	// This interval is approximate and may be subject to jitter to ensure
+	// efficient use of resources.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
+	// +optional
+	Interval metav1.Duration `json:"interval"`
+
+	// The timeout for remote OCI Repository operations like pulling, defaults to 60s.
+	// +kubebuilder:default="60s"
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m))+$"
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+}
+
+type HelmRepositoryChartSource struct {
+	// URL of the Helm repository, a valid URL contains at least a protocol and
+	// host.
+	// +kubebuilder:validation:Pattern="^(http|https|oci)://.*$"
+	// +required
+	URL string `json:"url"`
+
+	// Name is the name of the Helm Chart in the specified Helm Repository.
+	// +required
 	Name string `json:"name"`
 
+	// Version is the chart version semver expression.
+	// Defaults to latest when omitted.
 	// +optional
 	Version string `json:"version,omitempty"`
 
-	SourceRef CrossNamespaceObjectReference `json:"sourceRef"`
+	// Alternative list of values files to use as the chart values (values.yaml
+	// is not included by default), expected to be a relative path in the SourceRef.
+	// Values files are merged in the order of this list with the last file overriding
+	// the first. Ignored when omitted.
+	// +optional
+	ValuesFiles []string `json:"valuesFiles,omitempty"`
 
-	// +kubebuilder:default="1m"
+	// TODO: double check if we support such case with nelm.
+	// IgnoreMissingValuesFiles controls whether to silently ignore missing values files rather than failing.
+	// +optional
+	IgnoreMissingValuesFiles bool `json:"ignoreMissingValuesFiles,omitempty"`
+
+	// CredentialsFrom specifies the Secret containing authentication credentials
+	// for the HelmRepository.
+	// For HTTP/S basic auth the secret must contain 'username' and 'password'
+	// fields.
+	// Support for TLS auth using the 'certFile' and 'keyFile', and/or 'caFile'
+	// keys is deprecated. Please use `.spec.certSecretRef` instead.
+	// +optional
+	CredentialsFrom *CredentialReference `json:"credentialsFrom,omitempty"`
+
+	// CertificateFrom can be given the name of a Secret containing
+	// either or both of
+	//
+	// - a PEM-encoded client certificate (`tls.crt`) and private
+	// key (`tls.key`);
+	// - a PEM-encoded CA certificate (`ca.crt`)
+	//
+	// and whichever are supplied, will be used for connecting to the
+	// registry. The client cert and key are useful if you are
+	// authenticating with a certificate; the CA cert is useful if
+	// you are using a self-signed server certificate. The Secret must
+	// be of type `Opaque` or `kubernetes.io/tls`.
+	//
+	// It takes precedence over the values specified in the Secret referred
+	// to by `.spec.secretRef`.
+	// +optional
+	CertificateFrom *CertificateReference `json:"certificateFrom,omitempty"`
+
+	// PassCredentials allows the credentials from the SecretRef to be passed
+	// on to a host that does not match the host as defined in URL.
+	// This may be required if the host of the advertised chart URLs in the
+	// index differ from the defined URL.
+	// Enabling this should be done with caution, as it can potentially result
+	// in credentials getting stolen in a MITM-attack.
+	// +optional
+	PassCredentials bool `json:"passCredentials,omitempty"`
+
+	// Verify contains the secret name containing the trusted public keys
+	// used to verify the signature and specifies which provider to use to check
+	// whether OCI image is authentic.
+	// This field is only supported when using HelmRepository source with spec.type 'oci'.
+	// Chart dependencies, which are not bundled in the umbrella chart artifact, are not verified.
+	// +optional
+	Verify *sourcev1.OCIRepositoryVerification `json:"verify,omitempty"`
+
+	// Insecure allows connecting to a non-TLS HTTP container registry.
+	// This field is only taken into account if the .spec.type field is set to 'oci'.
+	// +optional
+	Insecure bool `json:"insecure,omitempty"`
+
+	// TODO: per task requirements, below field must use value from release object if it is not set.
+	// Interval at which the HelmRepository URL is checked for updates.
+	// This interval is approximate and may be subject to jitter to ensure
+	// efficient use of resources.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
 	// +optional
 	Interval metav1.Duration `json:"interval,omitempty"`
 
-	// +kubebuilder:default="ChartVersion"
-	// +kubebuilder:validation:Enum=ChartVersion;Revision
+	// Timeout is used for the index fetch operation for an HTTPS helm repository,
+	// and for remote OCI Repository operations like pulling for an OCI helm
+	// chart by the associated HelmChart.
+	// Its default value is 60s.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m))+$"
 	// +optional
-	ReconcileStrategy string `json:"reconcileStrategy,omitempty"`
-
-	// +optional
-	Verify *ChartVerification `json:"verify,omitempty"`
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
 }
 
-type CrossNamespaceObjectReference struct {
-	// +kubebuilder:validation:Enum=HelmRepository;GitRepository;Bucket
-	Kind string `json:"kind"`
+type BucketChartSource struct {
+	// Endpoint is the object storage address the BucketName is located at.
+	// +required
+	Endpoint string `json:"endpoint"`
 
-	Name string `json:"name"`
+	// BucketName is the name of the object storage bucket.
+	// +required
+	BucketName string `json:"bucketName"`
 
+	// Path specifies path to the Helm Chart in the S3 bucket.
+	// +required
+	Path string `json:"path"`
+
+	// Alternative list of values files to use as the chart values (values.yaml
+	// is not included by default), expected to be a relative path in the SourceRef.
+	// Values files are merged in the order of this list with the last file overriding
+	// the first. Ignored when omitted.
 	// +optional
-	Namespace string `json:"namespace,omitempty"`
+	ValuesFiles []string `json:"valuesFiles,omitempty"`
+
+	// IgnoreMissingValuesFiles controls whether to silently ignore missing values files rather than failing.
+	// +optional
+	IgnoreMissingValuesFiles bool `json:"ignoreMissingValuesFiles,omitempty"`
+
+	// Provider of the object storage bucket.
+	// Defaults to 'generic', which expects an S3 (API) compatible object
+	// storage.
+	// +kubebuilder:validation:Enum=generic;aws;gcp;azure
+	// +kubebuilder:default:=generic
+	// +optional
+	Provider string `json:"provider,omitempty"`
+
+	// Region of the Endpoint where the BucketName is located in.
+	// +optional
+	Region string `json:"region,omitempty"`
+
+	// Prefix to use for server-side filtering of files in the Bucket.
+	// +optional
+	Prefix string `json:"prefix,omitempty"`
+
+	// CredentialsFrom specifies the Secret containing authentication credentials
+	// for the Bucket.
+	// +optional
+	CredentialsFrom *CredentialReference `json:"credentialsFrom,omitempty"`
+
+	// CertificateFrom can be given the name of a Secret containing
+	// either or both of
+	//
+	// - a PEM-encoded client certificate (`tls.crt`) and private
+	// key (`tls.key`);
+	// - a PEM-encoded CA certificate (`ca.crt`)
+	//
+	// and whichever are supplied, will be used for connecting to the
+	// bucket. The client cert and key are useful if you are
+	// authenticating with a certificate; the CA cert is useful if
+	// you are using a self-signed server certificate. The Secret must
+	// be of type `Opaque` or `kubernetes.io/tls`.
+	//
+	// This field is only supported for the `generic` provider.
+	// +optional
+	CertificateFrom *CertificateReference `json:"certificateFrom,omitempty"`
+
+	// ProxySettingsFrom specifies the Secret containing the proxy configuration
+	// to use while communicating with the Bucket server.
+	// +optional
+	ProxySettingsFrom *ProxySettingsReference `json:"proxySettingsFrom,omitempty"`
+
+	// ServiceAccountName is the name of the Kubernetes ServiceAccount used to authenticate
+	// the bucket. This field is only supported for the 'gcp' and 'aws' providers.
+	// For more information about workload identity:
+	// https://fluxcd.io/flux/components/source/buckets/#workload-identity
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// Insecure allows connecting to a non-TLS HTTP Endpoint.
+	// +optional
+	Insecure bool `json:"insecure,omitempty"`
+
+	// Ignore overrides the set of excluded patterns in the .sourceignore format
+	// (which is the same as .gitignore). If not provided, a default will be used,
+	// consult the documentation for your version to find out what those are.
+	// +optional
+	Ignore *string `json:"ignore,omitempty"`
+
+	// STS specifies the required configuration to use a Security Token
+	// Service for fetching temporary credentials to authenticate in a
+	// Bucket provider.
+	//
+	// This field is only supported for the `aws` and `generic` providers.
+	// +optional
+	STS *sourcev1.BucketSTSSpec `json:"sts,omitempty"`
+
+	// Interval at which the Bucket Endpoint is checked for updates.
+	// This interval is approximate and may be subject to jitter to ensure
+	// efficient use of resources.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
+	// +required
+	Interval metav1.Duration `json:"interval"`
+
+	// Timeout for fetch operations, defaults to 60s.
+	// +kubebuilder:default="60s"
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m))+$"
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
+	// ReconcileStrategy determines what enables the creation of a new artifact.
+	// Valid values are ('ChartVersion', 'Revision').
+	// See the documentation of the values for an explanation on their behavior.
+	// Defaults to ChartVersion when omitted.
+	// +kubebuilder:validation:Enum=ChartVersion;Revision
+	// +kubebuilder:default:=ChartVersion
+	// +optional
+	ReconcileStrategy string `json:"reconcileStrategy,omitempty"`
 }
 
 type ChartSourceRef struct {
+	// +optional
+	APIVersion string `json:"apiVersion,omitempty"`
+
 	// +kubebuilder:validation:Enum=HelmChart;OCIRepository
+	// +required
 	Kind string `json:"kind"`
 
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
 	Name string `json:"name"`
 
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
-}
-
-type ChartVerification struct {
-	// +kubebuilder:validation:Enum=cosign
-	Provider string `json:"provider"`
-
-	// +optional
-	SecretRef *LocalObjectReference `json:"secretRef,omitempty"`
-}
-
-type LocalObjectReference struct {
-	Name string `json:"name"`
 }
 
 type ValuesReference struct {
 	// +kubebuilder:validation:Enum=ConfigMap;Secret
+	// +required
 	Kind string `json:"kind"`
 
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
 	Name string `json:"name"`
 
 	// +kubebuilder:default="values.yaml"
@@ -206,11 +635,43 @@ type ValuesReference struct {
 	Optional bool `json:"optional,omitempty"`
 }
 
+type CredentialReference struct {
+	// +kubebuilder:validation:Enum=Secret
+	// +kubebuilder:default="Secret"
+	Kind string `json:"kind"`
+
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name"`
+}
+
+type ProxySettingsReference struct {
+	// +kubebuilder:validation:Enum=Secret
+	// +kubebuilder:default="Secret"
+	Kind string `json:"kind"`
+
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name"`
+}
+
+type CertificateReference struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name"`
+}
+
 type SecretKeyReference struct {
 	// +kubebuilder:validation:Enum=Secret
 	// +kubebuilder:default="Secret"
 	Kind string `json:"kind"`
 
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
 	Name string `json:"name"`
 
 	// +kubebuilder:default="key"
@@ -301,6 +762,7 @@ type ProvenanceConfig struct {
 	// +optional
 	Strategy string `json:"strategy,omitempty"`
 
+	// FIXME: should have dedicated type.
 	// +optional
 	KeyringFrom *SecretKeyReference `json:"keyringFrom,omitempty"`
 }
