@@ -88,17 +88,18 @@ func (r *ReleaseReconciler) reconcileInstall(ctx context.Context, rel *nelmv1alp
 	}
 	defer os.RemoveAll(tempDir)
 
-	chartResult, err := source.ResolveChartSource(ctx, r.Client, rel, r.Config.SourceAPIGroup, r.Config.SourceAPIVersion, tempDir, r.Config.HTTPRetry, r.Config.HTTPTimeout)
+	chartResult, err := source.ResolveChartSource(ctx, r.Client, r.Scheme, rel, r.Config.SourceAPIGroup, r.Config.SourceAPIVersion, tempDir, r.Config.HTTPRetry, r.Config.HTTPTimeout)
 	if err != nil {
 		var notReady *source.SourceNotReadyError
 		if errors.As(err, &notReady) {
+			// FIXME: should be reflacted in conditions as well.
 			log.Info("Source not ready, requeueing", "message", notReady.Message)
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 		return r.handleFailure(ctx, rel, false, fmt.Errorf("resolve chart source: %w", err))
 	}
 
-	resolvedValues, err := values.Resolve(ctx, r.Client, rel, tempDir)
+	resolvedValues, err := values.Resolve(ctx, r.Client, rel, chartResult.ValuesFiles, tempDir)
 	if err != nil {
 		return r.handleFailure(ctx, rel, false, fmt.Errorf("resolve values: %w", err))
 	}

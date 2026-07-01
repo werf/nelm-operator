@@ -61,9 +61,9 @@ spec:
                         description: BucketName is the name of the object storage
                           bucket.
                         type: string
-                      certSecretRef:
+                      certificateFrom:
                         description: |-
-                          CertSecretRef can be given the name of a Secret containing
+                          CertificateFrom can be given the name of a Secret containing
                           either or both of
 
                           - a PEM-encoded client certificate (`tls.crt`) and private
@@ -79,9 +79,28 @@ spec:
                           This field is only supported for the `generic` provider.
                         properties:
                           name:
-                            description: Name of the referent.
+                            maxLength: 253
+                            minLength: 1
                             type: string
                         required:
+                        - name
+                        type: object
+                      credentialsFrom:
+                        description: |-
+                          CredentialsFrom specifies the Secret containing authentication credentials
+                          for the Bucket.
+                        properties:
+                          kind:
+                            default: Secret
+                            enum:
+                            - Secret
+                            type: string
+                          name:
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                        required:
+                        - kind
                         - name
                         type: object
                       endpoint:
@@ -129,32 +148,39 @@ spec:
                         - gcp
                         - azure
                         type: string
-                      proxySecretRef:
+                      proxySettingsFrom:
                         description: |-
-                          ProxySecretRef specifies the Secret containing the proxy configuration
+                          ProxySettingsFrom specifies the Secret containing the proxy configuration
                           to use while communicating with the Bucket server.
                         properties:
+                          kind:
+                            default: Secret
+                            enum:
+                            - Secret
+                            type: string
                           name:
-                            description: Name of the referent.
+                            maxLength: 253
+                            minLength: 1
                             type: string
                         required:
+                        - kind
                         - name
                         type: object
+                      reconcileStrategy:
+                        default: ChartVersion
+                        description: |-
+                          ReconcileStrategy determines what enables the creation of a new artifact.
+                          Valid values are ('ChartVersion', 'Revision').
+                          See the documentation of the values for an explanation on their behavior.
+                          Defaults to ChartVersion when omitted.
+                        enum:
+                        - ChartVersion
+                        - Revision
+                        type: string
                       region:
                         description: Region of the Endpoint where the BucketName is
                           located in.
                         type: string
-                      secretRef:
-                        description: |-
-                          SecretRef specifies the Secret containing authentication credentials
-                          for the Bucket.
-                        properties:
-                          name:
-                            description: Name of the referent.
-                            type: string
-                        required:
-                        - name
-                        type: object
                       serviceAccountName:
                         description: |-
                           ServiceAccountName is the name of the Kubernetes ServiceAccount used to authenticate
@@ -261,6 +287,28 @@ spec:
                           This can be combined with Branch to shallow clone the branch, in which
                           the commit is expected to exist.
                         type: string
+                      credentialsFrom:
+                        description: |-
+                          CredentialsFrom specifies the Secret containing authentication credentials for
+                          the GitRepository.
+                          For HTTPS repositories the Secret must contain 'username' and 'password'
+                          fields for basic auth or 'bearerToken' field for token auth.
+                          For SSH repositories the Secret must contain 'identity'
+                          and 'known_hosts' fields.
+                        properties:
+                          kind:
+                            default: Secret
+                            enum:
+                            - Secret
+                            type: string
+                          name:
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                        required:
+                        - kind
+                        - name
+                        type: object
                       ignore:
                         description: |-
                           Ignore overrides the set of excluded patterns in the .sourceignore format
@@ -318,25 +366,42 @@ spec:
                         type: string
                       provider:
                         description: |-
-                          Provider used for authentication, can be 'aws', 'azure', 'github', 'generic'.
+                          Provider used for authentication, can be 'azure', 'github', 'generic'.
                           When not specified, defaults to 'generic'.
                         enum:
                         - generic
-                        - aws
                         - azure
                         - github
                         type: string
-                      proxySecretRef:
+                      proxySettingsFrom:
                         description: |-
-                          ProxySecretRef specifies the Secret containing the proxy configuration
+                          ProxySettingsFrom specifies the Secret containing the proxy configuration
                           to use while communicating with the Git server.
                         properties:
+                          kind:
+                            default: Secret
+                            enum:
+                            - Secret
+                            type: string
                           name:
-                            description: Name of the referent.
+                            maxLength: 253
+                            minLength: 1
                             type: string
                         required:
+                        - kind
                         - name
                         type: object
+                      reconcileStrategy:
+                        default: ChartVersion
+                        description: |-
+                          ReconcileStrategy determines what enables the creation of a new artifact.
+                          Valid values are ('ChartVersion', 'Revision').
+                          See the documentation of the values for an explanation on their behavior.
+                          Defaults to ChartVersion when omitted.
+                        enum:
+                        - ChartVersion
+                        - Revision
+                        type: string
                       ref:
                         description: |-
                           Reference is the reference to check out; takes precedence over Branch, Tag and SemVer.
@@ -344,21 +409,6 @@ spec:
                           It must be a valid Git reference: https://git-scm.com/docs/git-check-ref-format#_description
                           Examples: "refs/heads/main", "refs/tags/v0.1.0", "refs/pull/420/head", "refs/merge-requests/1/head"
                         type: string
-                      secretRef:
-                        description: |-
-                          SecretRef specifies the Secret containing authentication credentials for
-                          the GitRepository.
-                          For HTTPS repositories the Secret must contain 'username' and 'password'
-                          fields for basic auth or 'bearerToken' field for token auth.
-                          For SSH repositories the Secret must contain 'identity'
-                          and 'known_hosts' fields.
-                        properties:
-                          name:
-                            description: Name of the referent.
-                            type: string
-                        required:
-                        - name
-                        type: object
                       semver:
                         description: SemVer tag expression to check out, takes precedence
                           over Tag.
@@ -404,46 +454,24 @@ spec:
                           Verification specifies the configuration to verify the Git commit
                           signature(s).
                         properties:
-                          matchOIDCIdentity:
+                          mode:
+                            default: HEAD
                             description: |-
-                              MatchOIDCIdentity specifies the identity matching criteria to use
-                              while verifying an OCI artifact which was signed using Cosign keyless
-                              signing. The artifact's identity is deemed to be verified if any of the
-                              specified matchers match against the identity.
-                            items:
-                              description: |-
-                                OIDCIdentityMatch specifies options for verifying the certificate identity,
-                                i.e. the issuer and the subject of the certificate.
-                              properties:
-                                issuer:
-                                  description: |-
-                                    Issuer specifies the regex pattern to match against to verify
-                                    the OIDC issuer in the Fulcio certificate. The pattern must be a
-                                    valid Go regular expression.
-                                  type: string
-                                subject:
-                                  description: |-
-                                    Subject specifies the regex pattern to match against to verify
-                                    the identity subject in the Fulcio certificate. The pattern must
-                                    be a valid Go regular expression.
-                                  type: string
-                              required:
-                              - issuer
-                              - subject
-                              type: object
-                            type: array
-                          provider:
-                            default: cosign
-                            description: Provider specifies the technology used to
-                              sign the OCI Artifact.
+                              Mode specifies which Git object(s) should be verified.
+
+                              The variants "head" and "HEAD" both imply the same thing, i.e. verify
+                              the commit that the HEAD of the Git repository points to. The variant
+                              "head" solely exists to ensure backwards compatibility.
                             enum:
-                            - cosign
-                            - notation
+                            - head
+                            - HEAD
+                            - Tag
+                            - TagAndHEAD
                             type: string
                           secretRef:
                             description: |-
-                              SecretRef specifies the Kubernetes Secret containing the
-                              trusted public keys.
+                              SecretRef specifies the Secret containing the public keys of trusted Git
+                              authors.
                             properties:
                               name:
                                 description: Name of the referent.
@@ -452,7 +480,7 @@ spec:
                             - name
                             type: object
                         required:
-                        - provider
+                        - secretRef
                         type: object
                     required:
                     - path
@@ -462,9 +490,9 @@ spec:
                     description: OCIRepositoryChartSource defines Helm Chart from
                       OCI repository/registry.
                     properties:
-                      certSecretRef:
+                      certificateFrom:
                         description: |-
-                          CertSecretRef can be given the name of a Secret containing
+                          CertificateFrom can be given the name of a Secret containing
                           either or both of
 
                           - a PEM-encoded client certificate (`tls.crt`) and private
@@ -478,9 +506,29 @@ spec:
                           be of type `Opaque` or `kubernetes.io/tls`.
                         properties:
                           name:
-                            description: Name of the referent.
+                            maxLength: 253
+                            minLength: 1
                             type: string
                         required:
+                        - name
+                        type: object
+                      credentialsFrom:
+                        description: |-
+                          CredentialsFrom contains the secret name containing the registry login
+                          credentials to resolve image metadata.
+                          The secret must be of type kubernetes.io/dockerconfigjson.
+                        properties:
+                          kind:
+                            default: Secret
+                            enum:
+                            - Secret
+                            type: string
+                          name:
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                        required:
+                        - kind
                         - name
                         type: object
                       digest:
@@ -538,26 +586,22 @@ spec:
                         - azure
                         - gcp
                         type: string
-                      proxySecretRef:
+                      proxySettingsFrom:
                         description: |-
-                          ProxySecretRef specifies the Secret containing the proxy configuration
+                          ProxySettingsFrom specifies the Secret containing the proxy configuration
                           to use while communicating with the container registry.
                         properties:
+                          kind:
+                            default: Secret
+                            enum:
+                            - Secret
+                            type: string
                           name:
-                            description: Name of the referent.
+                            maxLength: 253
+                            minLength: 1
                             type: string
                         required:
-                        - name
-                        type: object
-                      secretRef:
-                        description: |-
-                          SecretRef specifies the Kubernetes Secret containing the
-                          trusted public keys.
-                        properties:
-                          name:
-                            description: Name of the referent.
-                            type: string
-                        required:
+                        - kind
                         - name
                         type: object
                       semver:
@@ -653,9 +697,9 @@ spec:
                     description: HelmRepositoryChartSource defines Helm Chart from
                       Helm repository.
                     properties:
-                      certSecretRef:
+                      certificateFrom:
                         description: |-
-                          CertSecretRef can be given the name of a Secret containing
+                          CertificateFrom can be given the name of a Secret containing
                           either or both of
 
                           - a PEM-encoded client certificate (`tls.crt`) and private
@@ -672,9 +716,32 @@ spec:
                           to by `.spec.secretRef`.
                         properties:
                           name:
-                            description: Name of the referent.
+                            maxLength: 253
+                            minLength: 1
                             type: string
                         required:
+                        - name
+                        type: object
+                      credentialsFrom:
+                        description: |-
+                          CredentialsFrom specifies the Secret containing authentication credentials
+                          for the HelmRepository.
+                          For HTTP/S basic auth the secret must contain 'username' and 'password'
+                          fields.
+                          Support for TLS auth using the 'certFile' and 'keyFile', and/or 'caFile'
+                          keys is deprecated. Please use `.spec.certSecretRef` instead.
+                        properties:
+                          kind:
+                            default: Secret
+                            enum:
+                            - Secret
+                            type: string
+                          name:
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                        required:
+                        - kind
                         - name
                         type: object
                       ignoreMissingValuesFiles:
@@ -706,21 +773,6 @@ spec:
                           Enabling this should be done with caution, as it can potentially result
                           in credentials getting stolen in a MITM-attack.
                         type: boolean
-                      secretRef:
-                        description: |-
-                          SecretRef specifies the Secret containing authentication credentials
-                          for the HelmRepository.
-                          For HTTP/S basic auth the secret must contain 'username' and 'password'
-                          fields.
-                          Support for TLS auth using the 'certFile' and 'keyFile', and/or 'caFile'
-                          keys is deprecated. Please use `.spec.certSecretRef` instead.
-                        properties:
-                          name:
-                            description: Name of the referent.
-                            type: string
-                        required:
-                        - name
-                        type: object
                       timeout:
                         description: |-
                           Timeout is used for the index fetch operation for an HTTPS helm repository,

@@ -19,7 +19,6 @@ package v1alpha1
 import (
 	"time"
 
-	"github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -145,19 +144,19 @@ type ReleaseSpec struct {
 type ReleaseChart struct {
 	// BucketChartSource defines Helm Chart from S3 bucket.
 	// +optional
-	BucketChartSource BucketChartSource `json:"bucket,omitempty"`
+	BucketChartSource *BucketChartSource `json:"bucket,omitempty"`
 
 	// GitRepositoryChartSource defines Helm Chart from Git repository.
 	// +optional
-	GitRepositoryChartSource GitRepositoryChartSource `json:"git,omitempty"`
+	GitRepositoryChartSource *GitRepositoryChartSource `json:"git,omitempty"`
 
 	// OCIRepositoryChartSource defines Helm Chart from OCI repository/registry.
 	// +optional
-	OCIRepositoryChartSource OCIRepositoryChartSource `json:"oci,omitempty"`
+	OCIRepositoryChartSource *OCIRepositoryChartSource `json:"oci,omitempty"`
 
 	// HelmRepositoryChartSource defines Helm Chart from Helm repository.
 	// +optional
-	HelmRepositoryChartSource HelmRepositoryChartSource `json:"repo,omitempty"`
+	HelmRepositoryChartSource *HelmRepositoryChartSource `json:"repo,omitempty"`
 }
 
 type GitRepositoryChartSource struct {
@@ -208,18 +207,18 @@ type GitRepositoryChartSource struct {
 	// +optional
 	IgnoreMissingValuesFiles bool `json:"ignoreMissingValuesFiles,omitempty"`
 
-	// SecretRef specifies the Secret containing authentication credentials for
+	// CredentialsFrom specifies the Secret containing authentication credentials for
 	// the GitRepository.
 	// For HTTPS repositories the Secret must contain 'username' and 'password'
 	// fields for basic auth or 'bearerToken' field for token auth.
 	// For SSH repositories the Secret must contain 'identity'
 	// and 'known_hosts' fields.
 	// +optional
-	SecretRef *meta.LocalObjectReference `json:"secretRef,omitempty"`
+	CredentialsFrom *CredentialReference `json:"credentialsFrom,omitempty"`
 
-	// Provider used for authentication, can be 'aws', 'azure', 'github', 'generic'.
+	// Provider used for authentication, can be 'azure', 'github', 'generic'.
 	// When not specified, defaults to 'generic'.
-	// +kubebuilder:validation:Enum=generic;aws;azure;github
+	// +kubebuilder:validation:Enum=generic;azure;github
 	// +optional
 	Provider string `json:"provider,omitempty"`
 
@@ -228,10 +227,10 @@ type GitRepositoryChartSource struct {
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
-	// ProxySecretRef specifies the Secret containing the proxy configuration
+	// ProxySettingsFrom specifies the Secret containing the proxy configuration
 	// to use while communicating with the Git server.
 	// +optional
-	ProxySecretRef *meta.LocalObjectReference `json:"proxySecretRef,omitempty"`
+	ProxySettingsFrom *ProxySettingsReference `json:"proxySettingsFrom,omitempty"`
 
 	// Submodules enables the initialization of all submodules within
 	// the GitRepository as cloned from the URL, using their default settings.
@@ -253,7 +252,7 @@ type GitRepositoryChartSource struct {
 	// Verification specifies the configuration to verify the Git commit
 	// signature(s).
 	// +optional
-	Verification *sourcev1.OCIRepositoryVerification `json:"verify,omitempty"`
+	Verification *sourcev1.GitRepositoryVerification `json:"verify,omitempty"`
 
 	// Include specifies a list of GitRepository resources which Artifacts
 	// should be included in the Artifact produced for this GitRepository.
@@ -275,6 +274,15 @@ type GitRepositoryChartSource struct {
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m))+$"
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
+	// ReconcileStrategy determines what enables the creation of a new artifact.
+	// Valid values are ('ChartVersion', 'Revision').
+	// See the documentation of the values for an explanation on their behavior.
+	// Defaults to ChartVersion when omitted.
+	// +kubebuilder:validation:Enum=ChartVersion;Revision
+	// +kubebuilder:default:=ChartVersion
+	// +optional
+	ReconcileStrategy string `json:"reconcileStrategy,omitempty"`
 }
 
 type OCIRepositoryChartSource struct {
@@ -302,12 +310,13 @@ type OCIRepositoryChartSource struct {
 	// +optional
 	SemverFilter string `json:"semverFilter,omitempty"`
 
-	// SecretRef specifies the Kubernetes Secret containing the
-	// trusted public keys.
+	// CredentialsFrom contains the secret name containing the registry login
+	// credentials to resolve image metadata.
+	// The secret must be of type kubernetes.io/dockerconfigjson.
 	// +optional
-	SecretRef *meta.LocalObjectReference `json:"secretRef,omitempty"`
+	CredentialsFrom *CredentialReference `json:"credentialsFrom,omitempty"`
 
-	// CertSecretRef can be given the name of a Secret containing
+	// CertificateFrom can be given the name of a Secret containing
 	// either or both of
 	//
 	// - a PEM-encoded client certificate (`tls.crt`) and private
@@ -320,12 +329,12 @@ type OCIRepositoryChartSource struct {
 	// you are using a self-signed server certificate. The Secret must
 	// be of type `Opaque` or `kubernetes.io/tls`.
 	// +optional
-	CertSecretRef *meta.LocalObjectReference `json:"certSecretRef,omitempty"`
+	CertificateFrom *CertificateReference `json:"certificateFrom,omitempty"`
 
-	// ProxySecretRef specifies the Secret containing the proxy configuration
+	// ProxySettingsFrom specifies the Secret containing the proxy configuration
 	// to use while communicating with the container registry.
 	// +optional
-	ProxySecretRef *meta.LocalObjectReference `json:"proxySecretRef,omitempty"`
+	ProxySettingsFrom *ProxySettingsReference `json:"proxySettingsFrom,omitempty"`
 
 	// ServiceAccountName is the name of the Kubernetes ServiceAccount used to authenticate
 	// the image pull if the service account has attached pull secrets. For more information:
@@ -406,16 +415,16 @@ type HelmRepositoryChartSource struct {
 	// +optional
 	IgnoreMissingValuesFiles bool `json:"ignoreMissingValuesFiles,omitempty"`
 
-	// SecretRef specifies the Secret containing authentication credentials
+	// CredentialsFrom specifies the Secret containing authentication credentials
 	// for the HelmRepository.
 	// For HTTP/S basic auth the secret must contain 'username' and 'password'
 	// fields.
 	// Support for TLS auth using the 'certFile' and 'keyFile', and/or 'caFile'
 	// keys is deprecated. Please use `.spec.certSecretRef` instead.
 	// +optional
-	SecretRef *meta.LocalObjectReference `json:"secretRef,omitempty"`
+	CredentialsFrom *CredentialReference `json:"credentialsFrom,omitempty"`
 
-	// CertSecretRef can be given the name of a Secret containing
+	// CertificateFrom can be given the name of a Secret containing
 	// either or both of
 	//
 	// - a PEM-encoded client certificate (`tls.crt`) and private
@@ -431,7 +440,7 @@ type HelmRepositoryChartSource struct {
 	// It takes precedence over the values specified in the Secret referred
 	// to by `.spec.secretRef`.
 	// +optional
-	CertSecretRef *meta.LocalObjectReference `json:"certSecretRef,omitempty"`
+	CertificateFrom *CertificateReference `json:"certificateFrom,omitempty"`
 
 	// PassCredentials allows the credentials from the SecretRef to be passed
 	// on to a host that does not match the host as defined in URL.
@@ -514,12 +523,12 @@ type BucketChartSource struct {
 	// +optional
 	Prefix string `json:"prefix,omitempty"`
 
-	// SecretRef specifies the Secret containing authentication credentials
+	// CredentialsFrom specifies the Secret containing authentication credentials
 	// for the Bucket.
 	// +optional
-	SecretRef *meta.LocalObjectReference `json:"secretRef,omitempty"`
+	CredentialsFrom *CredentialReference `json:"credentialsFrom,omitempty"`
 
-	// CertSecretRef can be given the name of a Secret containing
+	// CertificateFrom can be given the name of a Secret containing
 	// either or both of
 	//
 	// - a PEM-encoded client certificate (`tls.crt`) and private
@@ -534,12 +543,12 @@ type BucketChartSource struct {
 	//
 	// This field is only supported for the `generic` provider.
 	// +optional
-	CertSecretRef *meta.LocalObjectReference `json:"certSecretRef,omitempty"`
+	CertificateFrom *CertificateReference `json:"certificateFrom,omitempty"`
 
-	// ProxySecretRef specifies the Secret containing the proxy configuration
+	// ProxySettingsFrom specifies the Secret containing the proxy configuration
 	// to use while communicating with the Bucket server.
 	// +optional
-	ProxySecretRef *meta.LocalObjectReference `json:"proxySecretRef,omitempty"`
+	ProxySettingsFrom *ProxySettingsReference `json:"proxySettingsFrom,omitempty"`
 
 	// ServiceAccountName is the name of the Kubernetes ServiceAccount used to authenticate
 	// the bucket. This field is only supported for the 'gcp' and 'aws' providers.
@@ -580,6 +589,15 @@ type BucketChartSource struct {
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m))+$"
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
+	// ReconcileStrategy determines what enables the creation of a new artifact.
+	// Valid values are ('ChartVersion', 'Revision').
+	// See the documentation of the values for an explanation on their behavior.
+	// Defaults to ChartVersion when omitted.
+	// +kubebuilder:validation:Enum=ChartVersion;Revision
+	// +kubebuilder:default:=ChartVersion
+	// +optional
+	ReconcileStrategy string `json:"reconcileStrategy,omitempty"`
 }
 
 type ChartSourceRef struct {
@@ -615,6 +633,35 @@ type ValuesReference struct {
 
 	// +optional
 	Optional bool `json:"optional,omitempty"`
+}
+
+type CredentialReference struct {
+	// +kubebuilder:validation:Enum=Secret
+	// +kubebuilder:default="Secret"
+	Kind string `json:"kind"`
+
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name"`
+}
+
+type ProxySettingsReference struct {
+	// +kubebuilder:validation:Enum=Secret
+	// +kubebuilder:default="Secret"
+	Kind string `json:"kind"`
+
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name"`
+}
+
+type CertificateReference struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name"`
 }
 
 type SecretKeyReference struct {
@@ -715,6 +762,7 @@ type ProvenanceConfig struct {
 	// +optional
 	Strategy string `json:"strategy,omitempty"`
 
+	// FIXME: should have dedicated type.
 	// +optional
 	KeyringFrom *SecretKeyReference `json:"keyringFrom,omitempty"`
 }

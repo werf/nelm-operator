@@ -7,7 +7,6 @@ require (
 	github.com/fluxcd/source-controller/api v1.8.5
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
-	github.com/samber/lo v1.53.0
 	github.com/werf/logboek v0.6.1
 	github.com/werf/nelm v1.23.3-0.20260617131144-c22d5fd3c5dd
 	k8s.io/api v0.35.3
@@ -132,6 +131,7 @@ require (
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/rubenv/sql-migrate v1.8.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
+	github.com/samber/lo v1.53.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect

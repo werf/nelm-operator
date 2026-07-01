@@ -8,20 +8,38 @@ metadata:
 spec:
   # --- Chart source (exactly one of chart or chartRef must be set) ---
 
-  # Option 1: Inline chart template — operator creates and manages a HelmChart object.
+  # Option 1: Inline chart source. Specify EXACTLY ONE of: repo | git | oci | bucket.
   chart:
-    name: myapp
-    version: "2.1.0"
-    sourceRef:
-      kind: HelmRepository          # HelmRepository | GitRepository | Bucket
-      name: my-repo
-      namespace: flux-system         # optional, defaults to Release namespace
-    interval: 10m
-    reconcileStrategy: ChartVersion  # ChartVersion | Revision
-    verify:                          # optional, chart verification
-      provider: cosign
-      secretRef:
-        name: cosign-public-key
+    # repo: Helm Chart from a Helm repository (HTTP/S or OCI).
+    repo:
+      url: https://stefanprodan.github.io/podinfo  # ^(http|https|oci)://
+      name: podinfo                 # chart name in the repository
+      version: "6.7.1"              # semver expression; latest when omitted
+      interval: 10m                 # repository poll interval (defaults to spec.interval)
+
+    # git: Helm Chart from a Git repository.
+    # git:
+    #   url: https://github.com/stefanprodan/podinfo  # ^(http|https|ssh)://
+    #   path: ./charts/podinfo      # path to the chart in the repo
+    #   branch: master              # one of branch | tag | semver | commit | ref
+    #   provider: generic           # generic | azure | github (default: generic)
+    #   interval: 10m
+
+    # oci: Helm Chart from an OCI registry.
+    # oci:
+    #   url: oci://ghcr.io/stefanprodan/charts/podinfo  # ^oci://
+    #   tag: "6.7.1"                # one of tag | semver | digest
+    #   provider: generic           # generic | aws | azure | gcp (default: generic)
+    #   interval: 10m
+
+    # bucket: Helm Chart from an S3-compatible bucket.
+    # bucket:
+    #   endpoint: minio.example.com # object storage address
+    #   bucketName: charts          # bucket name
+    #   path: ./podinfo             # path to the chart in the bucket
+    #   provider: generic           # generic | aws | gcp | azure (default: generic)
+    #   region: us-east-1           # optional
+    #   interval: 10m               # required
 
   # Option 2: Reference to a pre-existing source object (mutually exclusive with chart).
   # chartRef:
