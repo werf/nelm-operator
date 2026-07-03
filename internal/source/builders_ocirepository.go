@@ -10,13 +10,7 @@ import (
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 )
 
-// buildOCIRepository maps a nelm OCIRepositoryChartSource onto a typed FluxCD
-// OCIRepository object. It is a pure function: it has no side effects and does
-// not set owner references (that is handled by the ensure* layer).
-//
-// Unlike a GitRepository or HelmRepository, an OCIRepository is itself the
-// terminal artifact source for the chart, so no companion HelmChart is built.
-func buildOCIRepository(rel *nelmv1alpha1.Release, oci *nelmv1alpha1.OCIRepositoryChartSource) *sourcev1.OCIRepository {
+func buildOCIRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release, oci *nelmv1alpha1.OCIRepositoryChartSource) *sourcev1.OCIRepository {
 	// nelm exposes the OCI reference selectors (tag/semver/semverFilter/digest)
 	// as flat fields, whereas FluxCD nests them in OCIRepositoryRef. Only build
 	// the nested ref when at least one selector is set; otherwise leave it nil
@@ -33,12 +27,12 @@ func buildOCIRepository(rel *nelmv1alpha1.Release, oci *nelmv1alpha1.OCIReposito
 
 	res := sourcev1.OCIRepository{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: sourcev1.GroupVersion.String(),
+			APIVersion: sourceAPIGroup + "/" + sourceAPIVersion,
 			Kind:       sourcev1.OCIRepositoryKind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			// TODO: double check on object naming
-			Name:      fmt.Sprintf("%s-%s", rel.Namespace, rel.Name),
+			Name:      fmt.Sprintf("%s-%s", rel.Namespace, "inline"),
 			Namespace: rel.Namespace,
 		},
 		Spec: sourcev1.OCIRepositorySpec{

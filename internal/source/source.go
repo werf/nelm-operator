@@ -2,17 +2,19 @@ package source
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 	"github.com/werf/nelm/pkg/util"
@@ -26,153 +28,84 @@ type ChartResult struct {
 	ValuesFiles []string
 }
 
-// InlineChartRef identifies the terminal FluxCD source object that carries the
-// chart artifact for an inline (spec.chart) Release. For git/repo/bucket
-// sources this is the companion HelmChart; for oci it is the OCIRepository
-// itself. It is the contract handed from the ensure layer to the typed
-// extractor.
-type InlineChartRef struct {
-	Kind      string
-	Name      string
-	Namespace string
-}
-
-// ResolveChartSource resolves the chart for a Release into a local artifact.
-//
-// For an inline chart (spec.chart) it ensures the FluxCD source objects exist
-// (owned by the Release, applied server-side) and then extracts the artifact
-// from the terminal object using the typed FluxCD API.
-//
-// For a chartRef (spec.chartRef) it reads a user-managed source object via the
-// unstructured API (the kind/group/version are operator configuration) and
-// extracts the artifact from it.
-func ResolveChartSource(ctx context.Context, c client.Client, scheme *runtime.Scheme, rel *nelmv1alpha1.Release, sourceAPIGroup string, sourceAPIVersion string, tempDir string, httpRetry int, httpTimeout time.Duration) (*ChartResult, error) {
-	if rel.Spec.Chart != nil {
-		inlineRef, err := EnsureInlineChart(ctx, c, scheme, rel)
-		if err != nil {
-			return nil, fmt.Errorf("ensure inline chart source: %w", err)
-		}
-
-		obj := &unstructured.Unstructured{}
-		obj.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   sourceAPIGroup,
-			Version: sourceAPIVersion,
-			Kind:    inlineRef.Kind,
-		})
-
-		if err := c.Get(ctx, types.NamespacedName{Name: inlineRef.Name, Namespace: rel.Namespace}, obj); err != nil {
-			return nil, fmt.Errorf("get source object %s/%s: %w", inlineRef.Kind, inlineRef.Name, err)
-		}
-
-		return extractArtifact(ctx, obj, tempDir, httpRetry, httpTimeout)
-	}
-
-	if rel.Spec.ChartRef != nil {
-		return resolveChartRef(ctx, c, rel, sourceAPIGroup, sourceAPIVersion, tempDir, httpRetry, httpTimeout)
-	}
-
-	return nil, fmt.Errorf("neither spec.chart nor spec.chartRef is set")
-}
-
-// EnsureInlineChart materializes the FluxCD source objects for an inline chart
-// and returns a reference to the terminal artifact-bearing object.
-//
-// Each branch builds the per-source object (and, for non-oci sources, the
-// companion HelmChart) with the pure builders, sets the Release as controller
-// owner, and applies it server-side. The oci branch deliberately creates no
-// HelmChart: an OCIRepository is itself the chart artifact source.
-func EnsureInlineChart(ctx context.Context, c client.Client, scheme *runtime.Scheme, rel *nelmv1alpha1.Release) (InlineChartRef, error) {
-	chart := rel.Spec.Chart
-	if chart == nil {
-		return InlineChartRef{}, fmt.Errorf("spec.chart is not set")
-	}
-
-	name := fmt.Sprintf("%s-%s", rel.Namespace, rel.Name)
-	helmChartRef := InlineChartRef{Kind: sourcev1.HelmChartKind, Name: name, Namespace: rel.Namespace}
-
-	switch {
-	case chart.GitRepositoryChartSource != nil:
-		repo := buildGitRepository(rel, chart.GitRepositoryChartSource)
-		if err := applyObject(ctx, c, scheme, rel, repo); err != nil {
-			return InlineChartRef{}, fmt.Errorf("apply GitRepository: %w", err)
-		}
-		hc := buildHelmChartForGitRepositorySource(rel, chart.GitRepositoryChartSource)
-		if err := applyObject(ctx, c, scheme, rel, hc); err != nil {
-			return InlineChartRef{}, fmt.Errorf("apply HelmChart: %w", err)
-		}
-		return helmChartRef, nil
-
-	case chart.HelmRepositoryChartSource != nil:
-		repo := buildHelmRepository(rel, chart.HelmRepositoryChartSource)
-		if err := applyObject(ctx, c, scheme, rel, repo); err != nil {
-			return InlineChartRef{}, fmt.Errorf("apply HelmRepository: %w", err)
-		}
-		hc := buildHelmChartForHelmRepositorySource(rel, chart.HelmRepositoryChartSource)
-		if err := applyObject(ctx, c, scheme, rel, hc); err != nil {
-			return InlineChartRef{}, fmt.Errorf("apply HelmChart: %w", err)
-		}
-		return helmChartRef, nil
-
-	case chart.BucketChartSource != nil:
-		bucket := buildBucket(rel, chart.BucketChartSource)
-		if err := applyObject(ctx, c, scheme, rel, bucket); err != nil {
-			return InlineChartRef{}, fmt.Errorf("apply Bucket: %w", err)
-		}
-		hc := buildHelmChartForBucketSource(rel, chart.BucketChartSource)
-		if err := applyObject(ctx, c, scheme, rel, hc); err != nil {
-			return InlineChartRef{}, fmt.Errorf("apply HelmChart: %w", err)
-		}
-		return helmChartRef, nil
-
-	case chart.OCIRepositoryChartSource != nil:
-		// oci is terminal on its own; no companion HelmChart is created.
-		oci := buildOCIRepository(rel, chart.OCIRepositoryChartSource)
-		if err := applyObject(ctx, c, scheme, rel, oci); err != nil {
-			return InlineChartRef{}, fmt.Errorf("apply OCIRepository: %w", err)
-		}
-		return InlineChartRef{Kind: sourcev1.OCIRepositoryKind, Name: name, Namespace: rel.Namespace}, nil
-
-	default:
-		return InlineChartRef{}, fmt.Errorf("no chart source configured: exactly one of git, repo, oci or bucket must be set")
-	}
-}
-
-// applyObject sets the Release as the controlling owner of obj and applies it
-// server-side. The typed builders populate obj's TypeMeta, which server-side
-// apply requires.
-func applyObject(ctx context.Context, c client.Client, scheme *runtime.Scheme, rel *nelmv1alpha1.Release, obj client.Object) error {
-	if err := controllerutil.SetControllerReference(rel, obj, scheme); err != nil {
-		return fmt.Errorf("set controller reference: %w", err)
-	}
-
-	// TODO: switch form deprecated mechanism
-	if err := c.Patch(ctx, obj, client.Apply, client.FieldOwner("nelm-operator"), client.ForceOwnership); err != nil {
-		return fmt.Errorf("apply %s %s/%s: %w", obj.GetObjectKind().GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), err)
-	}
-
-	return nil
-}
-
-func resolveChartRef(ctx context.Context, c client.Client, rel *nelmv1alpha1.Release, sourceAPIGroup string, sourceAPIVersion string, tempDir string, httpRetry int, httpTimeout time.Duration) (*ChartResult, error) {
-	ref := rel.Spec.ChartRef
-
-	ns := ref.Namespace
-	if ns == "" {
-		ns = rel.Namespace
-	}
-
+// Resolve chart from Release spec.chartRef.
+func ResolveChartRef(ctx context.Context, c client.Client, sourceAPIGroup string, sourceAPIVersion string, chartRef *nelmv1alpha1.ChartSourceRef, tempDir string, httpRetry int, httpTimeout time.Duration) (*ChartResult, error) {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   sourceAPIGroup,
 		Version: sourceAPIVersion,
-		Kind:    ref.Kind,
+		Kind:    chartRef.Kind,
 	})
 
-	if err := c.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, obj); err != nil {
-		return nil, fmt.Errorf("get source object %s/%s: %w", ref.Kind, ref.Name, err)
+	if err := c.Get(ctx, types.NamespacedName{Name: chartRef.Name, Namespace: chartRef.Namespace}, obj); err != nil {
+		return nil, fmt.Errorf("get chart ref %s/%s: %w", chartRef.Kind, chartRef.Name, err)
 	}
 
 	return extractArtifact(ctx, obj, tempDir, httpRetry, httpTimeout)
+}
+
+func BuildChartSourceFromRelease(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release) (client.Object, error) {
+	chart := rel.Spec.Chart
+
+	var source client.Object
+
+	switch {
+	case chart.GitRepositoryChartSource != nil:
+		source = buildGitRepository(sourceAPIGroup, sourceAPIVersion, rel, chart.GitRepositoryChartSource)
+		expectedSourceHashedName, err := GetObjectHashedName(source)
+		if err != nil {
+			return nil, fmt.Errorf("set chart source hashed name: %w", err)
+		}
+		source.SetName(expectedSourceHashedName)
+
+	case chart.HelmRepositoryChartSource != nil:
+		source = buildHelmRepository(sourceAPIGroup, sourceAPIVersion, rel, chart.HelmRepositoryChartSource)
+		expectedSourceHashedName, err := GetObjectHashedName(source)
+		if err != nil {
+			return nil, fmt.Errorf("set chart source hashed name: %w", err)
+		}
+		source.SetName(expectedSourceHashedName)
+
+	case chart.BucketChartSource != nil:
+		source = buildBucket(sourceAPIGroup, sourceAPIVersion, rel, chart.BucketChartSource)
+		expectedSourceHashedName, err := GetObjectHashedName(source)
+		if err != nil {
+			return nil, fmt.Errorf("set chart source hashed name: %w", err)
+		}
+		source.SetName(expectedSourceHashedName)
+
+	case chart.OCIRepositoryChartSource != nil:
+		// oci is terminal on its own; no companion HelmChart is created.
+		source = buildOCIRepository(sourceAPIGroup, sourceAPIVersion, rel, chart.OCIRepositoryChartSource)
+		expectedHashedName, err := GetObjectHashedName(source)
+		if err != nil {
+			return nil, fmt.Errorf("set chart source hashed name: %w", err)
+		}
+		source.SetName(expectedHashedName)
+
+	default:
+		return nil, fmt.Errorf("no chart source configured: exactly one of git, repo, oci or bucket must be set")
+	}
+
+	return source, nil
+}
+
+func GetObjectHashedName(obj client.Object) (string, error) {
+	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert to unstructured: %w", err)
+	}
+
+	spec, _ := unstructuredMap["spec"]
+
+	specBytes, err := json.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal spec: %w", err)
+	}
+
+	hash := sha256.Sum256(specBytes)
+
+	return fmt.Sprintf("%s-%s", strings.TrimRight(obj.GetName(), "-"), hex.EncodeToString(hash[:])[:12]), nil
 }
 
 func extractArtifact(ctx context.Context, obj *unstructured.Unstructured, tempDir string, httpRetry int, httpTimeout time.Duration) (*ChartResult, error) {
@@ -194,6 +127,7 @@ func extractArtifact(ctx context.Context, obj *unstructured.Unstructured, tempDi
 
 	revision, _, _ := unstructured.NestedString(obj.Object, "status", "artifact", "revision")
 
+	// TODO: verify ability to use custom values files embeded into chart artifact.
 	var valuesFiles []string
 
 	if files, found, err := unstructured.NestedStringSlice(obj.Object, "spec", "valuesFiles"); err != nil {

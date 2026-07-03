@@ -11,14 +11,7 @@ import (
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 )
 
-// buildHelmRepository maps a nelm HelmRepositoryChartSource onto a typed FluxCD
-// HelmRepository object. It is a pure function: it has no side effects and does
-// not set owner references (that is handled by the ensure* layer).
-//
-// Chart-scoped fields (Name, Version, ValuesFiles, Verify,
-// IgnoreMissingValuesFiles) are intentionally NOT mapped here: they belong on
-// the HelmChart object, not on the HelmRepository.
-func buildHelmRepository(rel *nelmv1alpha1.Release, repo *nelmv1alpha1.HelmRepositoryChartSource) *sourcev1.HelmRepository {
+func buildHelmRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release, repo *nelmv1alpha1.HelmRepositoryChartSource) *sourcev1.HelmRepository {
 	// OCI Helm registries must be declared with Type "oci"; everything else is
 	// a classic index.yaml ("default") Helm repository.
 	repoType := sourcev1.HelmRepositoryTypeDefault
@@ -28,12 +21,12 @@ func buildHelmRepository(rel *nelmv1alpha1.Release, repo *nelmv1alpha1.HelmRepos
 
 	res := sourcev1.HelmRepository{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: sourcev1.GroupVersion.String(),
+			APIVersion: sourceAPIGroup + "/" + sourceAPIVersion,
 			Kind:       sourcev1.HelmRepositoryKind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			// TODO: double check on object naming
-			Name:      fmt.Sprintf("%s-%s", rel.Namespace, rel.Name),
+			Name:      fmt.Sprintf("%s-%s", rel.Namespace, "inline"),
 			Namespace: rel.Namespace,
 		},
 		Spec: sourcev1.HelmRepositorySpec{

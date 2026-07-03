@@ -42,6 +42,10 @@ type Release struct {
 	Status ReleaseStatus `json:"status,omitzero"`
 }
 
+func (r Release) GetConditions() []metav1.Condition {
+	return r.Status.Conditions
+}
+
 // +kubebuilder:object:root=true
 
 type ReleaseList struct {
@@ -259,7 +263,6 @@ type GitRepositoryChartSource struct {
 	// +optional
 	Include []sourcev1.GitRepositoryInclude `json:"include,omitempty"`
 
-	// TODO: per task requirements, below field must use value from release object if it is not set.
 	// Interval at which the GitRepository URL is checked for updates.
 	// This interval is approximate and may be subject to jitter to ensure
 	// efficient use of resources.
@@ -370,7 +373,6 @@ type OCIRepositoryChartSource struct {
 	// +optional
 	Verify *sourcev1.OCIRepositoryVerification `json:"verify,omitempty"`
 
-	// TODO: per task requirements, below field must use value from release object if it is not set.
 	// Interval at which the OCIRepository URL is checked for updates.
 	// This interval is approximate and may be subject to jitter to ensure
 	// efficient use of resources.
@@ -464,7 +466,6 @@ type HelmRepositoryChartSource struct {
 	// +optional
 	Insecure bool `json:"insecure,omitempty"`
 
-	// TODO: per task requirements, below field must use value from release object if it is not set.
 	// Interval at which the HelmRepository URL is checked for updates.
 	// This interval is approximate and may be subject to jitter to ensure
 	// efficient use of resources.
@@ -824,6 +825,43 @@ type ReleaseStatus struct {
 
 	// +optional
 	LastActionFailures int `json:"lastActionFailures,omitempty"`
+
+	// NOTE: required by future indexer based solution. Should be papulater on chart retrival.
+
+	// LastAttemptedArtifactRevision is the Source revision of the last reconciliation
+	// attempt. For OCIRepository sources, the 12 first characters of the digest are
+	// appended to the chart version e.g. "1.2.3+1234567890ab".
+	// +optional
+	LastAttemptedArtifactRevision string `json:"lastAttemptedArtifactRevision,omitempty"`
+
+	// NOTE: required by idempotent and atomic shared repository management.
+
+	// +optional
+	ChartSourcePhase string `json:"chartSourcePhase,omitempty"`
+	// +optional
+	LastAppliedChartSource *ChartSourceReference `json:"lastAppliedChartSource,omitempty"`
+	// +optional
+	CandidateChartSource *ChartSourceReference `json:"candidateChartSource,omitempty"`
+}
+
+type ChartSourceReference struct {
+	Group     string `json:"group,omitempty"`
+	Version   string `json:"version,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
+func (g *ChartSourceReference) GroupVersionKind() metav1.GroupVersionKind {
+	return metav1.GroupVersionKind{
+		Group:   g.Group,
+		Version: g.Version,
+		Kind:    g.Kind,
+	}
+}
+
+func (in *ReleaseStatus) GetLastAttemptedArtifactRevision() string {
+	return in.LastAttemptedArtifactRevision
 }
 
 func (r *Release) GetInstallTimeout() time.Duration {

@@ -930,6 +930,7 @@ spec:
               provenance:
                 properties:
                   keyringFrom:
+                    description: 'FIXME: should have dedicated type.'
                     properties:
                       dataKey:
                         default: key
@@ -1133,6 +1134,24 @@ spec:
               rule: has(self.chart) != has(self.chartRef)
           status:
             properties:
+              candidateChartSource:
+                properties:
+                  group:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                  version:
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
+              chartSourcePhase:
+                type: string
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -1196,6 +1215,28 @@ spec:
                 type: string
               lastActionFailures:
                 type: integer
+              lastAppliedChartSource:
+                properties:
+                  group:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                  version:
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
+              lastAttemptedArtifactRevision:
+                description: |-
+                  LastAttemptedArtifactRevision is the Source revision of the last reconciliation
+                  attempt. For OCIRepository sources, the 12 first characters of the digest are
+                  appended to the chart version e.g. "1.2.3+1234567890ab".
+                type: string
               observedGeneration:
                 format: int64
                 type: integer

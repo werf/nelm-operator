@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= registry.werf.io/nelm/nelm-operator:latest
+IMG ?= registry.werf.io/nelm-operator/nelm-controller:latest
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 

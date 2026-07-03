@@ -10,18 +10,15 @@ import (
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 )
 
-// buildGitRepository maps a nelm GitRepositoryChartSource onto a typed FluxCD
-// GitRepository object. It is a pure function: it has no side effects and does
-// not set owner references (that is handled by the ensure* layer).
-func buildGitRepository(rel *nelmv1alpha1.Release, git *nelmv1alpha1.GitRepositoryChartSource) *sourcev1.GitRepository {
+func buildGitRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release, git *nelmv1alpha1.GitRepositoryChartSource) *sourcev1.GitRepository {
 	res := sourcev1.GitRepository{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: sourcev1.GroupVersion.String(),
+			APIVersion: sourceAPIGroup + "/" + sourceAPIVersion,
 			Kind:       sourcev1.GitRepositoryKind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			// TODO: double check on object naming
-			Name:      fmt.Sprintf("%s-%s", rel.Namespace, rel.Name),
+			Name:      fmt.Sprintf("%s-%s", rel.Namespace, "inline"),
 			Namespace: rel.Namespace,
 		},
 		Spec: sourcev1.GitRepositorySpec{
