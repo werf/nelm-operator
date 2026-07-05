@@ -1,0 +1,8 @@
+apiVersion: v2
+appVersion: 0.0.1
+description: A Helm chart for nelm controller
+name: nelm-controller
+sources:
+  - https://github.com/werf/nelm-operator/charts/nelm-controller
+type: application
+version: 0.0.1

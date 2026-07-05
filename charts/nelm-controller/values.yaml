@@ -1,0 +1,84 @@
+# This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+imagePullSecrets: []
+
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: ""
+
+maxConcurentReconcile: 2
+
+replicaCount: 1
+
+image:
+  repository: registry.werf.io/nelm-operator/nelm-controller
+  pullPolicy: IfNotPresent
+  tag: v0.0.1
+
+podAnnotations:
+  prometheus.io/port: "8080"
+  prometheus.io/scrape: "true"
+
+podLabels: {}
+
+podSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Gi
+  requests:
+    cpu: 10m
+    memory: 128Mi
+
+livenessProbe:
+  httpGet:
+    path: /readyz
+    port: 8081
+    scheme: HTTP
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8081
+    scheme: HTTP
+
+volumes:
+  - emptyDir: {}
+    name: temp
+
+volumeMounts:
+  - mountPath: /tmp
+    name: temp
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+prometheus:
+  podMonitor:
+    create: false

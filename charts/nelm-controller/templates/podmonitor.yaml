@@ -1,0 +1,15 @@
+{{ if .Values.prometheus.podMonitor.create }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "nelm-controller.fullname" . }} 
+  labels:
+    {{- include "nelm-controller.labels" . | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "nelm-controller.selectorLabels" . | nindent 6 }}
+{{- end }}
