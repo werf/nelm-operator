@@ -6,4 +6,4 @@ dependencies:
   repository: oci://registry.werf.io/charts/nelm-operator
   version: 0.0.1
 digest: sha256:2b2f4ea910a573bb850376971f641ec2748d19f680a3dd9cce1795bfd59c1d0d
-generated: "2026-07-05T21:42:20.316392891+03:00"
+generated: "2026-07-07T01:13:18.630506016+03:00"

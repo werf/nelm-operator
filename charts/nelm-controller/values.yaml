@@ -5,7 +5,8 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-maxConcurentReconcile: 2
+# defaultServiceAccount:
+maxConcurentReconciles: 2
 
 replicaCount: 1
 
@@ -20,7 +21,9 @@ podAnnotations:
 
 podLabels: {}
 
-podSecurityContext:
+podSecurityContext: {}
+
+securityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop:
@@ -30,19 +33,10 @@ podSecurityContext:
   seccompProfile:
     type: RuntimeDefault
 
-securityContext:
-  runAsNonRoot: true
-  seccompProfile:
-    type: RuntimeDefault
-
-service:
-  type: ClusterIP
-  port: 80
-
 resources:
   limits:
     cpu: 500m
-    memory: 512Gi
+    memory: 512Mi
   requests:
     cpu: 10m
     memory: 128Mi
@@ -50,13 +44,13 @@ resources:
 livenessProbe:
   httpGet:
     path: /readyz
-    port: 8081
+    port: healthz
     scheme: HTTP
 
 readinessProbe:
   httpGet:
     path: /readyz
-    port: 8081
+    port: healthz
     scheme: HTTP
 
 volumes:
@@ -82,3 +76,5 @@ serviceAccount:
 prometheus:
   podMonitor:
     create: false
+    podMetricsEndpoints:
+      - port: http-prom

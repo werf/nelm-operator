@@ -6,7 +6,6 @@ metadata:
   labels:
     {{- include "nelm-controller.labels" . | nindent 4 }}
 rules:
-# TODO: remove below group after default service account implementation.
 - apiGroups:
   - ""
   resources:
@@ -37,7 +36,6 @@ rules:
   - delete
   - get
   - list
-# TODO: remove below group after default service account and impresonation will be implemented.
 - apiGroups:
   - '*'
   resources:
