@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"reflect"
 	"slices"
@@ -470,7 +471,7 @@ func (r *ReleaseReconciler) handleSuccess(ctx context.Context, rel *nelmv1alpha1
 	log := logf.FromContext(ctx)
 
 	historyResult, err := action.ReleaseHistory(ctx, releaseName, releaseNamespace, action.ReleaseHistoryOptions{
-		KubeConnectionOptions:       r.buildKubeConnectionOptions(),
+		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
 		OutputNoPrint:               true,
 		ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
 		ReleaseStorageSQLConnection: r.Config.ReleaseStorageSQLConnection,
@@ -615,7 +616,7 @@ func (r *ReleaseReconciler) attemptRollback(ctx context.Context, rel *nelmv1alph
 		rel.Status.LastAction = "rollback"
 
 		historyResult, historyErr := action.ReleaseHistory(ctx, releaseName, releaseNamespace, action.ReleaseHistoryOptions{
-			KubeConnectionOptions:       r.buildKubeConnectionOptions(),
+			KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
 			OutputNoPrint:               true,
 			ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
 			ReleaseStorageSQLConnection: r.Config.ReleaseStorageSQLConnection,
@@ -633,12 +634,43 @@ func (r *ReleaseReconciler) attemptRollback(ctx context.Context, rel *nelmv1alph
 	}
 }
 
-func (r *ReleaseReconciler) buildKubeConnectionOptions() common.KubeConnectionOptions {
-	return common.KubeConnectionOptions{
-		KubeQPSLimit:       r.Config.KubeQPSLimit,
-		KubeBurstLimit:     r.Config.KubeBurstLimit,
-		KubeRequestTimeout: r.Config.KubeRequestTimeout,
+func (r *ReleaseReconciler) buildKubeConnectionOptions(rel *nelmv1alpha1.Release) common.KubeConnectionOptions {
+	const (
+		inClusterCAPath    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+		inClusterTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	)
+
+	apiServerHost := os.Getenv("KUBERNETES_SERVICE_HOST")
+	apiServerPort := os.Getenv("KUBERNETES_SERVICE_PORT")
+	if apiServerPort == "" {
+		apiServerPort = "443"
 	}
+
+	options := common.KubeConnectionOptions{
+		KubeAPIServerAddress: "https://" + net.JoinHostPort(apiServerHost, apiServerPort),
+		KubeTLSCAPath:        inClusterCAPath,
+		KubeBearerTokenPath:  inClusterTokenPath,
+		KubeQPSLimit:         r.Config.KubeQPSLimit,
+		KubeBurstLimit:       r.Config.KubeBurstLimit,
+		KubeRequestTimeout:   r.Config.KubeRequestTimeout,
+	}
+
+	var serviceAccount string
+
+	if r.Config.DefaultServiceAccountName != "" {
+		serviceAccount = r.Config.DefaultServiceAccountName
+	}
+
+	if rel.Spec.ServiceAccountName != "" {
+		serviceAccount = rel.Spec.ServiceAccountName
+	}
+
+	if serviceAccount != "" {
+		user := fmt.Sprintf("system:serviceaccount:%s:%s", rel.GetReleaseNamespace(), serviceAccount)
+		options.KubeImpersonateUser = user
+	}
+
+	return options
 }
 
 func (r *ReleaseReconciler) buildTrackingOptions(rel *nelmv1alpha1.Release) common.TrackingOptions {
@@ -736,7 +768,7 @@ func (r *ReleaseReconciler) buildSecretValuesOptions(rel *nelmv1alpha1.Release, 
 
 func (r *ReleaseReconciler) buildPlanInstallOptions(rel *nelmv1alpha1.Release, chartPath string, tempDir string, resolvedValues *values.ResolvedValues) action.ReleasePlanInstallOptions {
 	return action.ReleasePlanInstallOptions{
-		KubeConnectionOptions:        r.buildKubeConnectionOptions(),
+		KubeConnectionOptions:        r.buildKubeConnectionOptions(rel),
 		ReleaseInstallRuntimeOptions: r.buildRuntimeOptions(rel),
 		ValuesOptions:                r.buildValuesOptions(rel, resolvedValues),
 		SecretValuesOptions:          r.buildSecretValuesOptions(rel, resolvedValues),
@@ -757,7 +789,7 @@ func (r *ReleaseReconciler) buildPlanInstallOptions(rel *nelmv1alpha1.Release, c
 
 func (r *ReleaseReconciler) buildInstallOptions(rel *nelmv1alpha1.Release, chartPath string, tempDir string, resolvedValues *values.ResolvedValues) action.ReleaseInstallOptions {
 	return action.ReleaseInstallOptions{
-		KubeConnectionOptions:        r.buildKubeConnectionOptions(),
+		KubeConnectionOptions:        r.buildKubeConnectionOptions(rel),
 		ReleaseInstallRuntimeOptions: r.buildRuntimeOptions(rel),
 		TrackingOptions:              r.buildTrackingOptions(rel),
 		ValuesOptions:                r.buildValuesOptions(rel, resolvedValues),
@@ -778,7 +810,7 @@ func (r *ReleaseReconciler) buildInstallOptions(rel *nelmv1alpha1.Release, chart
 
 func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, tempDir string) action.ReleaseRollbackOptions {
 	opts := action.ReleaseRollbackOptions{
-		KubeConnectionOptions:       r.buildKubeConnectionOptions(),
+		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
 		ResourceValidationOptions:   r.buildValidationOptions(rel),
 		TrackingOptions:             r.buildTrackingOptions(rel),
 		ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
@@ -809,7 +841,7 @@ func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, temp
 
 func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tempDir string) action.ReleaseUninstallOptions {
 	opts := action.ReleaseUninstallOptions{
-		KubeConnectionOptions:       r.buildKubeConnectionOptions(),
+		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
 		TrackingOptions:             r.buildTrackingOptions(rel),
 		ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
 		ReleaseStorageSQLConnection: r.Config.ReleaseStorageSQLConnection,

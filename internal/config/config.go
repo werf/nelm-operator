@@ -3,6 +3,8 @@ package config
 import "time"
 
 type OperatorConfig struct {
+	DefaultServiceAccountName string
+
 	LeaderElect             bool
 	MaxConcurrentReconciles int
 	MetricsBindAddress      string
