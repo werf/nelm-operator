@@ -1,0 +1,21 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "fluxcd-source-controller.fullname" . }}-ocirepository-viewer-role
+  labels:
+    {{- include "fluxcd-source-controller.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - source.toolkit.fluxcd.io
+  resources:
+  - ocirepositories
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - source.toolkit.fluxcd.io
+  resources:
+  - ocirepositories/status
+  verbs:
+  - get
