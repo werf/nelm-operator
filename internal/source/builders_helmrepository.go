@@ -11,7 +11,9 @@ import (
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 )
 
-func buildHelmRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release, repo *nelmv1alpha1.HelmRepositoryChartSource) *sourcev1.HelmRepository {
+func buildHelmRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release) *sourcev1.HelmRepository {
+	repo := rel.Spec.Chart.HelmRepositoryChartSource
+
 	// OCI Helm registries must be declared with Type "oci"; everything else is
 	// a classic index.yaml ("default") Helm repository.
 	repoType := sourcev1.HelmRepositoryTypeDefault

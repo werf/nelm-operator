@@ -931,7 +931,7 @@ spec:
                     type: string
                 type: object
               interval:
-                default: 1m
+                default: 5m
                 type: string
               noDefaultSecretValues:
                 type: boolean
@@ -1248,6 +1248,11 @@ spec:
                 - name
                 - namespace
                 type: object
+              lastAttemptedArtifactDigest:
+                description: |-
+                  LastAttemptedArtifactDigest is the digest of the last reconciliation attempt.
+                  This is only set for OCIRepository sources.
+                type: string
               lastAttemptedArtifactRevision:
                 description: |-
                   LastAttemptedArtifactRevision is the Source revision of the last reconciliation

@@ -10,6 +10,7 @@ import (
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"k8s.io/apimachinery/pkg/labels"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -44,6 +45,7 @@ func init() {
 func main() {
 	var cfg config.OperatorConfig
 	var metricsCertDir, metricsCertName, metricsCertKey string
+	var dependencyWatchLabelSelector string
 
 	// Controller runtime flags.
 	flag.StringVar(&cfg.MetricsBindAddress, "metrics-bind-address", "0", "The address the metrics endpoint binds to. Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable.")
@@ -67,6 +69,7 @@ func main() {
 		"API version for spec.chartRef sources; inline spec.chart always uses v1.")
 	flag.IntVar(&cfg.HTTPRetry, "http-retry", 9, "Number of retries when downloading chart artifacts.")
 	flag.DurationVar(&cfg.HTTPTimeout, "http-timeout", 30*time.Second, "Timeout for downloading chart artifacts.")
+	flag.StringVar(&dependencyWatchLabelSelector, "dependency-watch-label-selector", "", "Watch for dependency resources with matching labels e.g. 'nelm.werf.io/dependency=shard1'.")
 
 	// Release storage.
 	flag.StringVar(&cfg.ReleaseStorageDriver, "release-storage-driver", "secret", "How Helm release metadata is stored: secret, configmap, sql.")
@@ -158,6 +161,17 @@ func main() {
 	} else if !cfg.WatchAllNamespaces {
 		setupLog.Error(nil, "--watch-all-namespaces=false requires --watch-namespace to be set")
 		os.Exit(1)
+	}
+
+	cfg.DependencyWatchLabelSelector = labels.Everything()
+
+	if dependencyWatchLabelSelector != "" {
+		if val, err := labels.Parse(dependencyWatchLabelSelector); err != nil {
+			setupLog.Error(err, "failed to parse dependency-watch-label-selector")
+			os.Exit(1)
+		} else {
+			cfg.DependencyWatchLabelSelector = val
+		}
 	}
 
 	mgr, err := ctrl.NewManager(restConfig, mgrOptions)

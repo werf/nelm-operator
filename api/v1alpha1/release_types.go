@@ -65,7 +65,7 @@ type ReleaseSpec struct {
 	// +optional
 	TargetNamespace string `json:"targetNamespace,omitempty"`
 
-	// +kubebuilder:default="1m"
+	// +kubebuilder:default="5m"
 	// +optional
 	Interval metav1.Duration `json:"interval,omitempty"`
 
@@ -843,6 +843,11 @@ type ReleaseStatus struct {
 	// +optional
 	LastAttemptedArtifactRevision string `json:"lastAttemptedArtifactRevision,omitempty"`
 
+	// LastAttemptedArtifactDigest is the digest of the last reconciliation attempt.
+	// This is only set for OCIRepository sources.
+	// +optional
+	LastAttemptedArtifactDigest string `json:"lastAttemptedArtifactDigest,omitempty"`
+
 	// NOTE: required by idempotent and atomic shared repository management.
 
 	// +optional
@@ -867,10 +872,6 @@ func (g *ChartSourceReference) GroupVersionKind() metav1.GroupVersionKind {
 		Version: g.Version,
 		Kind:    g.Kind,
 	}
-}
-
-func (in *ReleaseStatus) GetLastAttemptedArtifactRevision() string {
-	return in.LastAttemptedArtifactRevision
 }
 
 func (r *Release) GetInstallTimeout() time.Duration {

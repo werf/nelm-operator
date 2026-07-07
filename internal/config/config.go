@@ -1,21 +1,26 @@
 package config
 
-import "time"
+import (
+	"time"
+
+	"k8s.io/apimachinery/pkg/labels"
+)
 
 type OperatorConfig struct {
 	DefaultServiceAccountName string
 
-	LeaderElect             bool
-	MaxConcurrentReconciles int
-	MetricsBindAddress      string
-	HealthProbeBindAddress  string
-	MetricsSecure           bool
-	MetricsCertDir          string
-	MetricsCertName         string
-	MetricsCertKey          string
-	GracefulShutdownTimeout time.Duration
-	WatchAllNamespaces      bool
-	WatchNamespace          string
+	LeaderElect                  bool
+	MaxConcurrentReconciles      int
+	MetricsBindAddress           string
+	HealthProbeBindAddress       string
+	MetricsSecure                bool
+	MetricsCertDir               string
+	MetricsCertName              string
+	MetricsCertKey               string
+	GracefulShutdownTimeout      time.Duration
+	WatchAllNamespaces           bool
+	WatchNamespace               string
+	DependencyWatchLabelSelector labels.Selector
 
 	SourceAPIGroup   string
 	SourceAPIVersion string

@@ -19,14 +19,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/werf/logboek"
 
@@ -38,7 +33,6 @@ import (
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 	"github.com/werf/nelm-operator/internal/config"
 	"github.com/werf/nelm-operator/internal/source"
-	"github.com/werf/nelm-operator/internal/utils"
 	"github.com/werf/nelm-operator/internal/values"
 )
 
@@ -89,7 +83,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if rel.Spec.Chart != nil {
 		expectedChartSource, err := source.BuildChartSourceFromRelease(r.Config.SourceAPIGroup, r.Config.SourceAPIVersion, &rel)
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("build source repo from inline spec: %w", err)
+			return r.handleFailure(ctx, &rel, false, fmt.Errorf("build source from spec.chart: %w", err))
 		}
 
 		expectedChartSourceRef := &nelmv1alpha1.ChartSourceReference{
@@ -122,7 +116,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 
 			if err := r.ensureChartSourceRef(ctx, &rel, expectedChartSource); err != nil {
-				return ctrl.Result{}, fmt.Errorf("ensure inline source: %w", err)
+				return r.handleFailure(ctx, &rel, false, fmt.Errorf("ensure spec.chart source: %w", err))
 			}
 
 			rel.Status.ChartSourcePhase = nelmv1alpha1.ChartSourcePhaseDisconnecting
@@ -135,7 +129,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// TODO: make sense to mark Reconcile condition as True here.
 			if rel.Status.LastAppliedChartSource != nil && !reflect.DeepEqual(rel.Status.LastAppliedChartSource, rel.Status.CandidateChartSource) {
 				if err := r.cleanupChartSourceRef(ctx, &rel, rel.Status.LastAppliedChartSource); err != nil {
-					return ctrl.Result{}, err
+					return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup last applied chart source: %w", err))
 				}
 			}
 
@@ -149,16 +143,16 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		chartRef, err = r.ensureHelmChart(ctx, &rel, expectedChartSource.GetName())
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("ensure chart source HelmChart: %w", err)
+			return r.handleFailure(ctx, &rel, false, fmt.Errorf("ensure chart source HelmChart: %w", err))
 		}
 	} else {
 		// Cleanup chartSource on switching from spec.Chart to spec.chartRef.
 		if rel.Status.LastAppliedChartSource != nil || rel.Status.CandidateChartSource != nil {
 			if err := r.cleanupChartSourceRef(ctx, &rel, rel.Status.LastAppliedChartSource); err != nil {
-				return ctrl.Result{}, fmt.Errorf("cleanup former chart source ref: %w", err)
+				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart source: %w", err))
 			}
 			if err := r.cleanupChartSourceRef(ctx, &rel, rel.Status.CandidateChartSource); err != nil {
-				return ctrl.Result{}, fmt.Errorf("cleanup former chart source ref: %w", err)
+				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart source: %w", err))
 			}
 			rel.Status.LastAppliedChartSource = nil
 			rel.Status.ChartSourcePhase = ""
@@ -167,7 +161,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, err
 			}
 			if err := r.cleanupHelmChart(ctx, &rel); err != nil {
-				return ctrl.Result{}, fmt.Errorf("cleanup former helm chart: %w", err)
+				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart HelmChart: %w", err))
 			}
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -180,7 +174,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	tempDir, err := os.MkdirTemp(r.Config.TempDir, "nelm-reconcile-*")
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("create temp dir: %w", err)
+		return r.handleFailure(ctx, &rel, false, fmt.Errorf("create temp directory: %w", err))
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -188,12 +182,19 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err != nil {
 		var notReady *source.SourceNotReadyError
 		if errors.As(err, &notReady) {
-			// FIXME: should be reflacted in conditions as well.
-			log.Info("Source not ready, requeueing", "message", notReady.Message)
-			// TODO: remove RequeueAfter when indexer based HelmChart be implemented. Currently this hack required for .spec.chartRef.
-			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+			// FIXME: should be reflected in conditions as well.
+			log.Info("Source not ready, waiting for watch event", "message", notReady.Message)
+			return ctrl.Result{}, nil
 		}
 		return r.handleFailure(ctx, &rel, false, fmt.Errorf("resolve chart source: %w", err))
+	}
+
+	if rel.Status.LastAttemptedArtifactDigest != chartResult.Digest {
+		rel.Status.LastAttemptedArtifactDigest = chartResult.Digest
+	}
+
+	if rel.Status.LastAttemptedArtifactRevision != chartResult.Revision {
+		rel.Status.LastAttemptedArtifactRevision = chartResult.Revision
 	}
 
 	return r.reconcileInstall(ctx, &rel, chartResult, tempDir)
@@ -866,44 +867,6 @@ func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tem
 
 func (r *ReleaseReconciler) setCondition(rel *nelmv1alpha1.Release, condition metav1.Condition) {
 	meta.SetStatusCondition(&rel.Status.Conditions, condition)
-}
-
-func (r *ReleaseReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(
-			&nelmv1alpha1.Release{},
-			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
-		).
-		WithOptions(controller.Options{
-			MaxConcurrentReconciles: r.Config.MaxConcurrentReconciles,
-		}).
-		// TODO: switch to more optimized soulution based on idnexers. It also solves tracking of non-inline charts
-		Watches(
-			&sourcev1.HelmChart{},
-			handler.EnqueueRequestsFromMapFunc(
-				utils.MapInternalResources(
-					nelmv1alpha1.HelmChartReleaseRefLabelName,
-				),
-			),
-			builder.WithPredicates(predicate.Funcs{
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					oldChart, ok1 := e.ObjectOld.(*sourcev1.HelmChart)
-					newChart, ok2 := e.ObjectNew.(*sourcev1.HelmChart)
-					if ok1 && ok2 {
-						if oldChart.Status.Artifact != nil && newChart.Status.Artifact != nil {
-							if oldChart.Status.Artifact.Digest != newChart.Status.Artifact.Digest {
-								return true
-							}
-						}
-						return !reflect.DeepEqual(oldChart.Status, newChart.Status)
-					}
-					return false
-				},
-			}),
-		).
-		// TODO: add watchers for related secrets and configmaps.
-		Named("release").
-		Complete(r)
 }
 
 func provenanceStrategy(rel *nelmv1alpha1.Release) string {
