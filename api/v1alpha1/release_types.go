@@ -95,6 +95,13 @@ type ReleaseSpec struct {
 	// +optional
 	SecretValuesFrom []ValuesReference `json:"secretValuesFrom,omitempty"`
 
+	// The name of the Kubernetes service account to impersonate
+	// when reconciling this Release.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
 	// +optional
 	NoDefaultSecretValues bool `json:"noDefaultSecretValues,omitempty"`
 

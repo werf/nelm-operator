@@ -1044,6 +1044,13 @@ spec:
                   - name
                   type: object
                 type: array
+              serviceAccountName:
+                description: |-
+                  The name of the Kubernetes service account to impersonate
+                  when reconciling this Release.
+                maxLength: 253
+                minLength: 1
+                type: string
               setRootContextJSON:
                 items:
                   type: string

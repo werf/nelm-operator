@@ -55,6 +55,7 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 
 	// Operator-specific flags.
+	flag.StringVar(&cfg.DefaultServiceAccountName, "default-service-account", "", "Service account to use during release deploy.")
 	flag.IntVar(&cfg.MaxConcurrentReconciles, "max-concurrent-reconciles", 5, "Number of Release CRDs reconciled in parallel.")
 	flag.DurationVar(&cfg.GracefulShutdownTimeout, "graceful-shutdown-timeout", 600*time.Second, "How long to wait for in-flight reconciles on SIGTERM.")
 	flag.BoolVar(&cfg.WatchAllNamespaces, "watch-all-namespaces", true, "Watch Release CRDs in all namespaces.")
