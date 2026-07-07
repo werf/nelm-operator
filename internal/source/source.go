@@ -181,6 +181,10 @@ func downloadArtifact(ctx context.Context, artifactURL string, tempDir string, m
 	if err != nil {
 		return "", fmt.Errorf("create chart temp file: %w", err)
 	}
+	defer func() {
+		_ = f.Close()
+	}()
+
 	chartPath := f.Name()
 
 	restyClient := util.NewRestyClient(ctx).
@@ -192,6 +196,7 @@ func downloadArtifact(ctx context.Context, artifactURL string, tempDir string, m
 		SetOutput(chartPath).
 		Get(artifactURL)
 	if err != nil {
+		_ = os.Remove(chartPath)
 		return "", fmt.Errorf("download artifact: %w", err)
 	}
 

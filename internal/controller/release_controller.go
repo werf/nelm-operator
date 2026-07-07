@@ -363,7 +363,7 @@ func (r *ReleaseReconciler) cleanupHelmChart(ctx context.Context, rel *nelmv1alp
 
 	err := r.Delete(ctx, unstruct)
 	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("delete HelmChart ", rel.Namespace)
+		return fmt.Errorf("delete HelmChart %s/%s: %w", rel.Namespace, helmChartName, err)
 	}
 	return nil
 }

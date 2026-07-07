@@ -271,11 +271,6 @@ spec:
                     description: GitRepositoryChartSource defines Helm Chart from
                       Git repository.
                     properties:
-                      Submodules:
-                        description: |-
-                          Submodules enables the initialization of all submodules within
-                          the GitRepository as cloned from the URL, using their default settings.
-                        type: boolean
                       branch:
                         description: Branch to check out, defaults to 'master' if
                           no other field is defined.
@@ -426,6 +421,11 @@ spec:
                         items:
                           type: string
                         type: array
+                      submodules:
+                        description: |-
+                          Submodules enables the initialization of all submodules within
+                          the GitRepository as cloned from the URL, using their default settings.
+                        type: boolean
                       tag:
                         description: Tag to check out, takes precedence over Branch.
                         type: string
@@ -486,6 +486,12 @@ spec:
                     - path
                     - url
                     type: object
+                    x-kubernetes-validations:
+                    - message: 'You must specify exactly one of: branch, tag, semver,
+                        commit or ref.'
+                      rule: '(has(self.branch) ? 1 : 0) + (has(self.tag) ? 1 : 0)
+                        + (has(self.semver) ? 1 : 0) + (has(self.commit) ? 1 : 0)
+                        + (has(self.ref) ? 1 : 0) == 1'
                   oci:
                     description: OCIRepositoryChartSource defines Helm Chart from
                       OCI repository/registry.
@@ -693,6 +699,10 @@ spec:
                     required:
                     - url
                     type: object
+                    x-kubernetes-validations:
+                    - message: 'You must specify exactly one of: tag, semver or digest.'
+                      rule: '(has(self.tag) ? 1 : 0) + (has(self.semver) ? 1 : 0)
+                        + (has(self.digest) ? 1 : 0) == 1'
                   repo:
                     description: HelmRepositoryChartSource defines Helm Chart from
                       Helm repository.
