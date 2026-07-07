@@ -1047,7 +1047,7 @@ spec:
               serviceAccountName:
                 description: |-
                   The name of the Kubernetes service account to impersonate
-                  when reconciling this HelmRelease.
+                  when reconciling this Release.
                 maxLength: 253
                 minLength: 1
                 type: string

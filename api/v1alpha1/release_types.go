@@ -96,7 +96,7 @@ type ReleaseSpec struct {
 	SecretValuesFrom []ValuesReference `json:"secretValuesFrom,omitempty"`
 
 	// The name of the Kubernetes service account to impersonate
-	// when reconciling this HelmRelease.
+	// when reconciling this Release.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +optional
