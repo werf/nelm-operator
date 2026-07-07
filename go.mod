@@ -56,7 +56,6 @@ require (
 	github.com/fluxcd/cli-utils v0.37.2-flux.1 // indirect
 	github.com/fluxcd/flagger v1.36.1 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.9.0 // indirect
-	github.com/fluxcd/pkg/runtime v0.100.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect

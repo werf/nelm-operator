@@ -163,6 +163,7 @@ type ReleaseChart struct {
 	HelmRepositoryChartSource *HelmRepositoryChartSource `json:"repo,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="(has(self.branch) ? 1 : 0) + (has(self.tag) ? 1 : 0) + (has(self.semver) ? 1 : 0) + (has(self.commit) ? 1 : 0) + (has(self.ref) ? 1 : 0) == 1", message="You must specify exactly one of: branch, tag, semver, commit or ref."
 type GitRepositoryChartSource struct {
 	// URL specifies the Git repository URL, it can be an HTTP/S or SSH address.
 	// +kubebuilder:validation:Pattern="^(http|https|ssh)://.*$"
@@ -239,7 +240,7 @@ type GitRepositoryChartSource struct {
 	// Submodules enables the initialization of all submodules within
 	// the GitRepository as cloned from the URL, using their default settings.
 	// +optional
-	Submodules bool `json:"Submodules,omitempty"`
+	Submodules bool `json:"submodules,omitempty"`
 
 	// SparseCheckout specifies a list of directories to checkout when cloning
 	// the repository. If specified, only these directories are included in the
@@ -288,6 +289,7 @@ type GitRepositoryChartSource struct {
 	ReconcileStrategy string `json:"reconcileStrategy,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="(has(self.tag) ? 1 : 0) + (has(self.semver) ? 1 : 0) + (has(self.digest) ? 1 : 0) == 1", message="You must specify exactly one of: tag, semver or digest."
 type OCIRepositoryChartSource struct {
 	// URL is a reference to an OCI artifact repository hosted
 	// on a remote container registry.
