@@ -30,5 +30,5 @@ go.work
 *.kubeconfig
 main
 
-# Skip fluxcd crds used during tesing
 test/fixtures/fluxcd-crds
+charts/**/*.tgz
