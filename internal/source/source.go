@@ -2,13 +2,16 @@ package source
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
-	"github.com/samber/lo"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -17,128 +20,92 @@ import (
 	"github.com/werf/nelm/pkg/util"
 )
 
+// ChartResult is the outcome of resolving a chart source: a local path to the
+// downloaded chart artifact and the source revision it was produced from.
 type ChartResult struct {
-	ChartPath string
-	Revision  string
+	ChartPath   string
+	Revision    string
+	ValuesFiles []string
 }
 
-func ResolveChartSource(ctx context.Context, c client.Client, rel *nelmv1alpha1.Release, sourceAPIGroup string, sourceAPIVersion string, tempDir string, httpRetry int, httpTimeout time.Duration) (*ChartResult, error) {
-	if rel.Spec.Chart != nil {
-		return resolveInlineChart(ctx, c, rel, sourceAPIGroup, sourceAPIVersion, tempDir, httpRetry, httpTimeout)
-	}
-
-	if rel.Spec.ChartRef != nil {
-		return resolveChartRef(ctx, c, rel, sourceAPIGroup, sourceAPIVersion, tempDir, httpRetry, httpTimeout)
-	}
-
-	return nil, fmt.Errorf("neither spec.chart nor spec.chartRef is set")
-}
-
-func resolveInlineChart(ctx context.Context, c client.Client, rel *nelmv1alpha1.Release, sourceAPIGroup string, sourceAPIVersion string, tempDir string, httpRetry int, httpTimeout time.Duration) (*ChartResult, error) {
-	helmChart, err := ensureHelmChart(ctx, c, rel, sourceAPIGroup, sourceAPIVersion)
-	if err != nil {
-		return nil, fmt.Errorf("ensure HelmChart object: %w", err)
-	}
-
-	return extractArtifact(ctx, helmChart, tempDir, httpRetry, httpTimeout)
-}
-
-func resolveChartRef(ctx context.Context, c client.Client, rel *nelmv1alpha1.Release, sourceAPIGroup string, sourceAPIVersion string, tempDir string, httpRetry int, httpTimeout time.Duration) (*ChartResult, error) {
-	ref := rel.Spec.ChartRef
-
-	ns := ref.Namespace
-	if ns == "" {
-		ns = rel.Namespace
-	}
-
+// Resolve chart from Release spec.chartRef.
+func ResolveChartRef(ctx context.Context, c client.Client, sourceAPIGroup string, sourceAPIVersion string, chartRef *nelmv1alpha1.ChartSourceRef, tempDir string, httpRetry int, httpTimeout time.Duration) (*ChartResult, error) {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   sourceAPIGroup,
 		Version: sourceAPIVersion,
-		Kind:    ref.Kind,
+		Kind:    chartRef.Kind,
 	})
 
-	if err := c.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ns}, obj); err != nil {
-		return nil, fmt.Errorf("get source object %s/%s: %w", ref.Kind, ref.Name, err)
+	if err := c.Get(ctx, types.NamespacedName{Name: chartRef.Name, Namespace: chartRef.Namespace}, obj); err != nil {
+		return nil, fmt.Errorf("get chart ref %s/%s: %w", chartRef.Kind, chartRef.Name, err)
 	}
 
 	return extractArtifact(ctx, obj, tempDir, httpRetry, httpTimeout)
 }
 
-func ensureHelmChart(ctx context.Context, c client.Client, rel *nelmv1alpha1.Release, sourceAPIGroup string, sourceAPIVersion string) (*unstructured.Unstructured, error) {
+func BuildChartSourceFromRelease(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release) (client.Object, error) {
 	chart := rel.Spec.Chart
-	chartName := fmt.Sprintf("%s-%s", rel.Namespace, rel.Name)
 
-	gvk := schema.GroupVersionKind{
-		Group:   sourceAPIGroup,
-		Version: sourceAPIVersion,
-		Kind:    "HelmChart",
+	var source client.Object
+
+	switch {
+	case chart.GitRepositoryChartSource != nil:
+		source = buildGitRepository(sourceAPIGroup, sourceAPIVersion, rel, chart.GitRepositoryChartSource)
+		expectedSourceHashedName, err := GetObjectHashedName(source)
+		if err != nil {
+			return nil, fmt.Errorf("set chart source hashed name: %w", err)
+		}
+		source.SetName(expectedSourceHashedName)
+
+	case chart.HelmRepositoryChartSource != nil:
+		source = buildHelmRepository(sourceAPIGroup, sourceAPIVersion, rel, chart.HelmRepositoryChartSource)
+		expectedSourceHashedName, err := GetObjectHashedName(source)
+		if err != nil {
+			return nil, fmt.Errorf("set chart source hashed name: %w", err)
+		}
+		source.SetName(expectedSourceHashedName)
+
+	case chart.BucketChartSource != nil:
+		source = buildBucket(sourceAPIGroup, sourceAPIVersion, rel, chart.BucketChartSource)
+		expectedSourceHashedName, err := GetObjectHashedName(source)
+		if err != nil {
+			return nil, fmt.Errorf("set chart source hashed name: %w", err)
+		}
+		source.SetName(expectedSourceHashedName)
+
+	case chart.OCIRepositoryChartSource != nil:
+		// oci is terminal on its own; no companion HelmChart is created.
+		source = buildOCIRepository(sourceAPIGroup, sourceAPIVersion, rel, chart.OCIRepositoryChartSource)
+		expectedHashedName, err := GetObjectHashedName(source)
+		if err != nil {
+			return nil, fmt.Errorf("set chart source hashed name: %w", err)
+		}
+		source.SetName(expectedHashedName)
+
+	default:
+		return nil, fmt.Errorf("no chart source configured: exactly one of git, repo, oci or bucket must be set")
 	}
 
-	desired := buildHelmChartObject(rel, chart, chartName, gvk, sourceAPIGroup)
-
-	if err := c.Patch(ctx, desired, client.Apply, client.FieldOwner("nelm-operator"), client.ForceOwnership); err != nil {
-		return nil, fmt.Errorf("apply HelmChart: %w", err)
-	}
-
-	return desired, nil
+	return source, nil
 }
 
-func buildHelmChartObject(rel *nelmv1alpha1.Release, chart *nelmv1alpha1.ReleaseChart, name string, gvk schema.GroupVersionKind, sourceAPIGroup string) *unstructured.Unstructured {
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvk)
-	obj.SetName(name)
-	obj.SetNamespace(rel.Namespace)
-	obj.SetOwnerReferences([]metav1.OwnerReference{
-		{
-			APIVersion:         nelmv1alpha1.SchemeGroupVersion.String(),
-			Kind:               "Release",
-			Name:               rel.Name,
-			UID:                rel.UID,
-			Controller:         lo.ToPtr(true),
-			BlockOwnerDeletion: lo.ToPtr(true),
-		},
-	})
-
-	sourceRef := map[string]interface{}{
-		"kind": chart.SourceRef.Kind,
-		"name": chart.SourceRef.Name,
-	}
-	if chart.SourceRef.Namespace != "" {
-		sourceRef["namespace"] = chart.SourceRef.Namespace
+func GetObjectHashedName(obj client.Object) (string, error) {
+	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert to unstructured: %w", err)
 	}
 
-	spec := map[string]interface{}{
-		"chart":     chart.Name,
-		"interval":  chart.Interval.Duration.String(),
-		"sourceRef": sourceRef,
+	spec, _ := unstructuredMap["spec"]
+
+	specBytes, err := json.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal spec: %w", err)
 	}
 
-	if chart.Version != "" {
-		spec["version"] = chart.Version
-	}
+	hash := sha256.Sum256(specBytes)
 
-	if chart.ReconcileStrategy != "" {
-		spec["reconcileStrategy"] = chart.ReconcileStrategy
-	}
-
-	if chart.Verify != nil {
-		verify := map[string]interface{}{
-			"provider": chart.Verify.Provider,
-		}
-		if chart.Verify.SecretRef != nil {
-			verify["secretRef"] = map[string]interface{}{
-				"name": chart.Verify.SecretRef.Name,
-			}
-		}
-		spec["verify"] = verify
-	}
-
-	if err := unstructured.SetNestedField(obj.Object, spec, "spec"); err != nil {
-		panic(fmt.Sprintf("set HelmChart spec: %v", err))
-	}
-
-	return obj
+	return fmt.Sprintf("%s-%s", strings.TrimRight(obj.GetName(), "-"), hex.EncodeToString(hash[:])[:12]), nil
 }
 
 func extractArtifact(ctx context.Context, obj *unstructured.Unstructured, tempDir string, httpRetry int, httpTimeout time.Duration) (*ChartResult, error) {
@@ -151,11 +118,23 @@ func extractArtifact(ctx context.Context, obj *unstructured.Unstructured, tempDi
 	}
 
 	artifactURL, found, err := unstructured.NestedString(obj.Object, "status", "artifact", "url")
-	if err != nil || !found || artifactURL == "" {
+	if err != nil {
+		return nil, fmt.Errorf("read .status.artifact.url: %w", err)
+	}
+	if !found || artifactURL == "" {
 		return nil, fmt.Errorf("source object has no .status.artifact.url")
 	}
 
 	revision, _, _ := unstructured.NestedString(obj.Object, "status", "artifact", "revision")
+
+	// TODO: verify ability to use custom values files embeded into chart artifact.
+	var valuesFiles []string
+
+	if files, found, err := unstructured.NestedStringSlice(obj.Object, "spec", "valuesFiles"); err != nil {
+		return nil, fmt.Errorf("read .spec.valuesFiles: %w", err)
+	} else if found {
+		valuesFiles = files
+	}
 
 	chartPath, err := downloadArtifact(ctx, artifactURL, tempDir, httpRetry, httpTimeout)
 	if err != nil {
@@ -163,8 +142,9 @@ func extractArtifact(ctx context.Context, obj *unstructured.Unstructured, tempDi
 	}
 
 	return &ChartResult{
-		ChartPath: chartPath,
-		Revision:  revision,
+		ChartPath:   chartPath,
+		Revision:    revision,
+		ValuesFiles: valuesFiles,
 	}, nil
 }
 
@@ -178,7 +158,7 @@ func checkReadyCondition(obj *unstructured.Unstructured) (bool, string, error) {
 	}
 
 	for _, c := range conditions {
-		cond, ok := c.(map[string]interface{})
+		cond, ok := c.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -201,8 +181,11 @@ func downloadArtifact(ctx context.Context, artifactURL string, tempDir string, m
 	if err != nil {
 		return "", fmt.Errorf("create chart temp file: %w", err)
 	}
+	defer func() {
+		_ = f.Close()
+	}()
+
 	chartPath := f.Name()
-	f.Close()
 
 	restyClient := util.NewRestyClient(ctx).
 		SetTimeout(timeout).
@@ -213,12 +196,11 @@ func downloadArtifact(ctx context.Context, artifactURL string, tempDir string, m
 		SetOutput(chartPath).
 		Get(artifactURL)
 	if err != nil {
-		os.Remove(chartPath)
+		_ = os.Remove(chartPath)
 		return "", fmt.Errorf("download artifact: %w", err)
 	}
 
 	if resp.IsError() {
-		os.Remove(chartPath)
 		return "", fmt.Errorf("download artifact: unexpected status %d", resp.StatusCode())
 	}
 

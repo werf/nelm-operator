@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= example.com/nelm-controller:latest
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -61,6 +61,9 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
+	@echo ""
+	wget -qN https://github.com/fluxcd/source-controller/releases/download/$(SOURCE_CONTROLLER_VERSION)/source-controller.crds.yaml -P test/fixtures/fluxcd-crds
+
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
@@ -121,7 +124,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} -f Dockerfile ..
+	$(CONTAINER_TOOL) build -t ${IMG} -f Dockerfile .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -175,7 +178,7 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
-SOURCE_CONTROLLER_VERSION ?= v1.6.1
+SOURCE_CONTROLLER_VERSION ?= v1.8.5
 
 .PHONY: deploy-source-controller
 deploy-source-controller: ## Deploy Flux source-controller with RBAC (for dev/testing).
@@ -193,7 +196,7 @@ undeploy-source-controller: ## Remove Flux source-controller.
 	"$(KUBECTL)" delete clusterrolebinding source-controller-admin --ignore-not-found=true
 	"$(KUBECTL)" delete namespace flux-system --ignore-not-found=true
 
-KIND_CLUSTER_NAME ?= kind
+KIND_CLUSTER_NAME ?= nelm-operator
 
 .PHONY: kind-load
 kind-load: ## Load docker image into kind cluster.

@@ -19,8 +19,12 @@ type ResolvedValues struct {
 	ProvenanceKeyringPath string
 }
 
-func Resolve(ctx context.Context, c client.Client, rel *nelmv1alpha1.Release, tempDir string) (*ResolvedValues, error) {
+func Resolve(ctx context.Context, c client.Client, rel *nelmv1alpha1.Release, chartValuesFiles []string, tempDir string) (*ResolvedValues, error) {
 	result := &ResolvedValues{}
+
+	if chartValuesFiles != nil {
+		result.ValuesFiles = chartValuesFiles
+	}
 
 	if rel.Spec.Values != nil {
 		path, err := writeToTempFile(rel.Spec.Values.Raw, tempDir, "inline-values-*.yaml")

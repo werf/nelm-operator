@@ -1,0 +1,31 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-bucket-secret
+type: Opaque
+stringData:
+  accesskey: BS6W4WG0vMrKl3APXWKw
+  secretkey: EYRUQScu2FEiHZ2n6RigJAYsLlPL1xhCR8yZb3nQ
+---
+apiVersion: nelm.werf.io/v1alpha1
+kind: Release
+metadata:
+  name: podinfo
+spec:
+  chart:
+    bucket:
+      bucketName: charts
+      credentialsFrom:
+        kind: Secret
+        name: minio-bucket-secret
+      endpoint: my-minio.minio.svc.cluster.local:9000
+      insecure: true
+      interval: 1m
+      path: podinfo-6.7.1.tgz
+      provider: generic
+      reconcileStrategy: ChartVersion
+      timeout: 60s
+  interval: 1m
+  targetNamespace: podinfo
+  timeout: 30m

@@ -8,12 +8,13 @@ metadata:
 spec:
   interval: 5m
   chart:
-    name: my-chart
-    version: "1.0.0"
-    interval: 5m
-    sourceRef:
-      kind: HelmRepository
-      name: my-repo
+    repo:
+      url: https://stefanprodan.github.io/podinfo
+      name: podinfo
+      version: "6.7.1"
+      interval: 5m
+  values:
+    replicaCount: 1
   install:
     autoRollback: true
     retries: 3

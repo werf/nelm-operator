@@ -1,7 +1,9 @@
 # nelm-operator
+
 // TODO(user): Add simple overview of use/purpose
 
 ## Description
+
 // TODO(user): An in-depth paragraph about your project and overview of use
 
 ## Quick start for development
@@ -10,50 +12,34 @@
 make deploy-source-controller
 make dev-deploy IMG=nelm-operator:dev KIND_CLUSTER_NAME=kind
 
-kubectl apply -f - <<EOF
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: podinfo
-spec:
-  interval: 10m
-  url: https://stefanprodan.github.io/podinfo
-EOF
-
-kubectl apply -f - <<EOF
+kubectl create -f - <<EOF
+---
 apiVersion: nelm.werf.io/v1alpha1
 kind: Release
 metadata:
   name: podinfo
 spec:
-  interval: 5m
+  targetNamespace: podinfo
   chart:
-    name: podinfo
-    version: "6.7.1"
-    interval: 5m
-    sourceRef:
-      kind: HelmRepository
+    repo:
+      url: https://stefanprodan.github.io/podinfo
       name: podinfo
-  values:
-    replicaCount: 2
-    ui:
-      message: "Hello from nelm-operator!"
-  install:
-    retries: 3
-  tracking:
-    readinessTimeout: 3m
+      version: "6.7.1"
+      interval: 10m
 EOF
 ```
 
 ## Getting Started
 
 ### Prerequisites
+
 - go version v1.24.6+
 - docker version 17.03+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
 
 ### To Deploy on the cluster
+
 **Build and push your image to the location specified by `IMG`:**
 
 ```sh
@@ -89,6 +75,7 @@ kubectl apply -k config/samples/
 >**NOTE**: Ensure that the samples has default values to test it out.
 
 ### To Uninstall
+
 **Delete the instances (CRs) from the cluster:**
 
 ```sh
@@ -124,7 +111,7 @@ file in the dist directory. This file contains all the resources built
 with Kustomize, which are necessary to install this project without its
 dependencies.
 
-2. Using the installer
+1. Using the installer
 
 Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
 the project, i.e.:
@@ -141,7 +128,7 @@ kubectl apply -f https://raw.githubusercontent.com/<org>/nelm-operator/<tag or b
 kubebuilder edit --plugins=helm/v2-alpha
 ```
 
-2. See that a chart was generated under 'dist/chart', and users
+1. See that a chart was generated under 'dist/chart', and users
 can obtain this solution from there.
 
 **NOTE:** If you change the project, you need to update the Helm Chart
@@ -152,6 +139,7 @@ previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml
 is manually re-applied afterwards.
 
 ## Contributing
+
 // TODO(user): Add detailed information on how you would like others to contribute to this project
 
 **NOTE:** Run `make help` for more information on all potential `make` targets
@@ -173,4 +161,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-

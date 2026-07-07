@@ -20,6 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 	"github.com/werf/nelm-operator/internal/config"
 	"github.com/werf/nelm-operator/internal/controller"
@@ -36,6 +38,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(nelmv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(sourcev1.AddToScheme(scheme))
 }
 
 func main() {
@@ -57,8 +60,10 @@ func main() {
 	flag.BoolVar(&cfg.WatchAllNamespaces, "watch-all-namespaces", true, "Watch Release CRDs in all namespaces.")
 	flag.StringVar(&cfg.WatchNamespace, "watch-namespace", "", "If set, only watch this namespace for Release CRDs.")
 	// Source controller integration.
-	flag.StringVar(&cfg.SourceAPIGroup, "source-api-group", "source.werf.io", "API group for source-controller CRDs.")
-	flag.StringVar(&cfg.SourceAPIVersion, "source-api-version", "v1", "API version for source-controller CRDs.")
+	flag.StringVar(&cfg.SourceAPIGroup, "source-api-group", "source.toolkit.fluxcd.io",
+		"API group for spec.chartRef sources; inline spec.chart always uses source.toolkit.fluxcd.io.")
+	flag.StringVar(&cfg.SourceAPIVersion, "source-api-version", "v1",
+		"API version for spec.chartRef sources; inline spec.chart always uses v1.")
 	flag.IntVar(&cfg.HTTPRetry, "http-retry", 9, "Number of retries when downloading chart artifacts.")
 	flag.DurationVar(&cfg.HTTPTimeout, "http-timeout", 30*time.Second, "Timeout for downloading chart artifacts.")
 

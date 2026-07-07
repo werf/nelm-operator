@@ -1,0 +1,23 @@
+tls:
+  enabled: false
+
+# Set your root credentials
+rootUser: "admin"
+rootPassword: "P@ssw0rd"
+
+# Configure the service to use NodePort for easy local access
+service:
+  type: NodePort
+  port: 9000
+  nodePort: 32000
+
+consoleService:
+  type: NodePort
+  port: 9001
+  nodePort: 32001
+
+# For local KinD testing, we can use a single node/drive setup
+mode: standalone
+replicas: 1
+persistence:
+  enabled: false
