@@ -1,0 +1,8 @@
+apiVersion: v2
+appVersion: 1.8.5
+description: A Helm chart for flux source controller
+name: flux-source-controller
+sources:
+  - https://github.com/werf/nelm-operator/charts/flux-source-controller
+type: application
+version: 0.0.1

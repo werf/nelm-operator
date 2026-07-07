@@ -1,0 +1,19 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "nelm-controller.fullname" . }}-release-admin-role
+  labels:
+    {{- include "nelm-controller.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - nelm.werf.io
+  resources:
+  - releases
+  verbs:
+  - '*'
+- apiGroups:
+  - nelm.werf.io
+  resources:
+  - releases/status
+  verbs:
+  - get

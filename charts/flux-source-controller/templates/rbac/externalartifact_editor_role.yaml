@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "fluxcd-source-controller.fullname" . }}-externalartifact-editor-role
+  labels:
+    {{- include "fluxcd-source-controller.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - source.toolkit.fluxcd.io
+  resources:
+  - externalartifacts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - source.toolkit.fluxcd.io
+  resources:
+  - externalartifacts/status
+  verbs:
+  - get
