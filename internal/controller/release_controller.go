@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/yaml"
 
 	"github.com/werf/logboek"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/werf/nelm/pkg/common"
 	"github.com/werf/nelm/pkg/kube"
 	"github.com/werf/nelm/pkg/release"
+	"github.com/werf/nelm/pkg/resource/spec"
 
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
@@ -420,7 +422,10 @@ func (r *ReleaseReconciler) reconcileInstall(ctx context.Context, rel *nelmv1alp
 		return r.handleFailure(ctx, rel, false, fmt.Errorf("resolve values: %w", err), preRel, false)
 	}
 
-	planOpts := r.buildPlanInstallOptions(rel, chartResult.ChartPath, tempDir, resolvedValues)
+	planOpts, err := r.buildPlanInstallOptions(rel, chartResult.ChartPath, tempDir, resolvedValues)
+	if err != nil {
+		return r.handleFailure(ctx, rel, false, fmt.Errorf("build plan install options: %w", err), preRel, false)
+	}
 	planArtifact, planErr := action.ReleasePlanInstall(ctx, releaseName, releaseNamespace, planOpts)
 
 	if planErr == nil {
@@ -441,7 +446,10 @@ func (r *ReleaseReconciler) reconcileInstall(ctx context.Context, rel *nelmv1alp
 		return r.handleFailure(ctx, rel, false, fmt.Errorf("plan install: %w", planErr), preRel, false)
 	}
 
-	installOpts := r.buildInstallOptions(rel, chartResult.ChartPath, tempDir, resolvedValues)
+	installOpts, err := r.buildInstallOptions(rel, chartResult.ChartPath, tempDir, resolvedValues)
+	if err != nil {
+		return r.handleFailure(ctx, rel, false, fmt.Errorf("build install options: %w", err), preRel, false)
+	}
 	installOpts.LegacyPlanArtifact = planArtifact
 	installOpts.PlanArtifactLifetime = 10 * time.Minute
 
@@ -594,7 +602,10 @@ func (r *ReleaseReconciler) reconcileDelete(ctx context.Context, rel *nelmv1alph
 	}
 	defer os.RemoveAll(tempDir)
 
-	uninstallOpts := r.buildUninstallOptions(rel, tempDir)
+	uninstallOpts, err := r.buildUninstallOptions(rel, tempDir)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("build uninstall options: %w", err)
+	}
 	releaseName := rel.Name
 	releaseNamespace := rel.GetReleaseNamespace()
 
@@ -742,7 +753,11 @@ func (r *ReleaseReconciler) attemptRollback(ctx context.Context, rel *nelmv1alph
 	}
 	defer os.RemoveAll(tempDir)
 
-	rollbackOpts := r.buildRollbackOptions(rel, tempDir)
+	rollbackOpts, err := r.buildRollbackOptions(rel, tempDir)
+	if err != nil {
+		log.Error(err, "Auto-rollback failed")
+		return
+	}
 	releaseName := rel.Name
 	releaseNamespace := rel.GetReleaseNamespace()
 
@@ -837,7 +852,7 @@ func (r *ReleaseReconciler) buildValidationOptions(rel *nelmv1alpha1.Release) co
 	return opts
 }
 
-func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release) common.ReleaseInstallRuntimeOptions {
+func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release, tempDir string) (common.ReleaseInstallRuntimeOptions, error) {
 	opts := common.ReleaseInstallRuntimeOptions{
 		ResourceValidationOptions:   r.buildValidationOptions(rel),
 		ExtraAnnotations:            rel.Spec.ExtraAnnotations,
@@ -851,6 +866,12 @@ func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release) commo
 		ForceAdoption:               true,
 	}
 
+	patchesFiles, err := diffPatchesFiles(rel.Spec.DiffPatches, tempDir)
+	if err != nil {
+		return common.ReleaseInstallRuntimeOptions{}, err
+	}
+	opts.PatchesFiles = patchesFiles
+
 	if rel.Spec.ReleaseStorage != nil {
 		opts.ReleaseHistoryLimit = rel.Spec.ReleaseStorage.HistoryLimit
 	}
@@ -861,9 +882,63 @@ func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release) commo
 		opts.DefaultDeletePropagation = install.DeletePropagation
 		opts.ForceAdoption = !install.NoForceAdoption
 		opts.NoRemoveManualChanges = install.NoRemoveManualChanges
+		opts.DefaultPatchesDisable = install.NoDefaultDiffPatches
 	}
 
-	return opts
+	return opts, nil
+}
+
+func diffPatchesFiles(patches []nelmv1alpha1.DiffPatch, tempDir string) ([]string, error) {
+	patchesFile, err := writeDiffPatchesFile(patches, tempDir)
+	if err != nil {
+		return nil, fmt.Errorf("write diff patches file: %w", err)
+	}
+	if patchesFile == "" {
+		return nil, nil
+	}
+
+	return []string{patchesFile}, nil
+}
+
+func writeDiffPatchesFile(patches []nelmv1alpha1.DiffPatch, tempDir string) (string, error) {
+	if len(patches) == 0 {
+		return "", nil
+	}
+
+	file := spec.PatchesFile{DiffPatches: make([]spec.DiffPatch, 0, len(patches))}
+	for _, p := range patches {
+		file.DiffPatches = append(file.DiffPatches, spec.DiffPatch{
+			Match: spec.ResourceMatcher{
+				Kinds:       p.Match.Kinds,
+				Names:       p.Match.Names,
+				Namespaces:  p.Match.Namespaces,
+				Groups:      p.Match.Groups,
+				Versions:    p.Match.Versions,
+				Charts:      p.Match.Charts,
+				Labels:      p.Match.Labels,
+				Annotations: p.Match.Annotations,
+			},
+			Type:  spec.DiffPatchType(p.Type),
+			Patch: p.Patch,
+		})
+	}
+
+	data, err := yaml.Marshal(file)
+	if err != nil {
+		return "", fmt.Errorf("marshal patches: %w", err)
+	}
+
+	f, err := os.CreateTemp(tempDir, "diff-patches-*.yaml")
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := f.Write(data); err != nil {
+		return "", fmt.Errorf("write temp file: %w", err)
+	}
+
+	return f.Name(), nil
 }
 
 // ownershipLabels returns a fresh label map carrying the user-supplied release
@@ -897,10 +972,15 @@ func (r *ReleaseReconciler) buildSecretValuesOptions(rel *nelmv1alpha1.Release, 
 	return opts
 }
 
-func (r *ReleaseReconciler) buildPlanInstallOptions(rel *nelmv1alpha1.Release, chartPath string, tempDir string, resolvedValues *values.ResolvedValues) action.ReleasePlanInstallOptions {
+func (r *ReleaseReconciler) buildPlanInstallOptions(rel *nelmv1alpha1.Release, chartPath string, tempDir string, resolvedValues *values.ResolvedValues) (action.ReleasePlanInstallOptions, error) {
+	runtimeOpts, err := r.buildRuntimeOptions(rel, tempDir)
+	if err != nil {
+		return action.ReleasePlanInstallOptions{}, err
+	}
+
 	return action.ReleasePlanInstallOptions{
 		KubeConnectionOptions:        r.buildKubeConnectionOptions(rel),
-		ReleaseInstallRuntimeOptions: r.buildRuntimeOptions(rel),
+		ReleaseInstallRuntimeOptions: runtimeOpts,
 		ValuesOptions:                r.buildValuesOptions(rel, resolvedValues),
 		SecretValuesOptions:          r.buildSecretValuesOptions(rel, resolvedValues),
 
@@ -915,13 +995,18 @@ func (r *ReleaseReconciler) buildPlanInstallOptions(rel *nelmv1alpha1.Release, c
 		TemplatesAllowDNS:       installTemplatesAllowDNS(rel),
 		TempDirPath:             tempDir,
 		Timeout:                 rel.GetInstallTimeout(),
-	}
+	}, nil
 }
 
-func (r *ReleaseReconciler) buildInstallOptions(rel *nelmv1alpha1.Release, chartPath string, tempDir string, resolvedValues *values.ResolvedValues) action.ReleaseInstallOptions {
+func (r *ReleaseReconciler) buildInstallOptions(rel *nelmv1alpha1.Release, chartPath string, tempDir string, resolvedValues *values.ResolvedValues) (action.ReleaseInstallOptions, error) {
+	runtimeOpts, err := r.buildRuntimeOptions(rel, tempDir)
+	if err != nil {
+		return action.ReleaseInstallOptions{}, err
+	}
+
 	return action.ReleaseInstallOptions{
 		KubeConnectionOptions:        r.buildKubeConnectionOptions(rel),
-		ReleaseInstallRuntimeOptions: r.buildRuntimeOptions(rel),
+		ReleaseInstallRuntimeOptions: runtimeOpts,
 		TrackingOptions:              r.buildTrackingOptions(rel),
 		ValuesOptions:                r.buildValuesOptions(rel, resolvedValues),
 		SecretValuesOptions:          r.buildSecretValuesOptions(rel, resolvedValues),
@@ -936,11 +1021,17 @@ func (r *ReleaseReconciler) buildInstallOptions(rel *nelmv1alpha1.Release, chart
 		TemplatesAllowDNS:       installTemplatesAllowDNS(rel),
 		TempDirPath:             tempDir,
 		Timeout:                 rel.GetInstallTimeout(),
-	}
+	}, nil
 }
 
-func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, tempDir string) action.ReleaseRollbackOptions {
+func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, tempDir string) (action.ReleaseRollbackOptions, error) {
+	patchesFiles, err := diffPatchesFiles(rel.Spec.DiffPatches, tempDir)
+	if err != nil {
+		return action.ReleaseRollbackOptions{}, err
+	}
+
 	opts := action.ReleaseRollbackOptions{
+		PatchesFiles:                patchesFiles,
 		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
 		ResourceValidationOptions:   r.buildValidationOptions(rel),
 		TrackingOptions:             r.buildTrackingOptions(rel),
@@ -966,13 +1057,20 @@ func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, temp
 		opts.DefaultDeletePropagation = rb.DeletePropagation
 		opts.ForceAdoption = !rb.NoForceAdoption
 		opts.NoRemoveManualChanges = rb.NoRemoveManualChanges
+		opts.DefaultPatchesDisable = rb.NoDefaultDiffPatches
 	}
 
-	return opts
+	return opts, nil
 }
 
-func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tempDir string) action.ReleaseUninstallOptions {
+func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tempDir string) (action.ReleaseUninstallOptions, error) {
+	patchesFiles, err := diffPatchesFiles(rel.Spec.DiffPatches, tempDir)
+	if err != nil {
+		return action.ReleaseUninstallOptions{}, err
+	}
+
 	opts := action.ReleaseUninstallOptions{
+		PatchesFiles:                patchesFiles,
 		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
 		TrackingOptions:             r.buildTrackingOptions(rel),
 		ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
@@ -991,9 +1089,10 @@ func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tem
 		opts.DeleteReleaseNamespace = un.DeleteNamespace
 		opts.DefaultDeletePropagation = un.DeletePropagation
 		opts.NoRemoveManualChanges = un.NoRemoveManualChanges
+		opts.DefaultPatchesDisable = un.NoDefaultDiffPatches
 	}
 
-	return opts
+	return opts, nil
 }
 
 func (r *ReleaseReconciler) setCondition(rel *nelmv1alpha1.Release, condition metav1.Condition) {
