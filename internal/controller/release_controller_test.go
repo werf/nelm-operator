@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/werf/nelm/pkg/action"
+	"github.com/werf/nelm/pkg/resource/spec"
 
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 )
@@ -115,7 +116,8 @@ var _ = Describe("buildRuntimeOptions", func() {
 	It("stamps the ownership marker and defaults ForceAdoption on", func() {
 		r := &ReleaseReconciler{}
 		rel := &nelmv1alpha1.Release{}
-		opts := r.buildRuntimeOptions(rel)
+		opts, err := r.buildRuntimeOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
 		Expect(opts.ReleaseLabels).To(HaveKeyWithValue(ownershipMarkerKey, ownershipMarkerValue))
 		Expect(opts.ForceAdoption).To(BeTrue())
 	})
@@ -127,7 +129,60 @@ var _ = Describe("buildRuntimeOptions", func() {
 				Install: &nelmv1alpha1.InstallConfig{NoForceAdoption: true},
 			},
 		}
-		Expect(r.buildRuntimeOptions(rel).ForceAdoption).To(BeFalse())
+		opts, err := r.buildRuntimeOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.ForceAdoption).To(BeFalse())
+	})
+
+	It("maps spec.diffPatches into a patches file passed to nelm", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				DiffPatches: []nelmv1alpha1.DiffPatch{
+					{
+						Match: nelmv1alpha1.DiffPatchMatcher{
+							Kinds:  []string{"Deployment"},
+							Charts: []string{"cache"},
+							Labels: map[string]string{"tier": "backend"},
+						},
+						Type:  "jq",
+						Patch: "del(.spec.replicas)",
+					},
+				},
+			},
+		}
+
+		opts, err := r.buildRuntimeOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.PatchesFiles).To(HaveLen(1))
+
+		parsed, err := spec.LoadPatchesFiles(opts.PatchesFiles)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(parsed).To(HaveLen(1))
+		Expect(parsed[0].Type).To(Equal(spec.DiffPatchTypeJQ))
+		Expect(parsed[0].Patch).To(Equal("del(.spec.replicas)"))
+		Expect(parsed[0].Match.Kinds).To(Equal([]string{"Deployment"}))
+		Expect(parsed[0].Match.Charts).To(Equal([]string{"cache"}))
+		Expect(parsed[0].Match.Labels).To(HaveKeyWithValue("tier", "backend"))
+	})
+
+	It("sets no patches files when spec.diffPatches is empty", func() {
+		r := &ReleaseReconciler{}
+		opts, err := r.buildRuntimeOptions(&nelmv1alpha1.Release{}, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.PatchesFiles).To(BeEmpty())
+	})
+
+	It("maps install.noDefaultDiffPatches to DefaultPatchesDisable", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				Install: &nelmv1alpha1.InstallConfig{NoDefaultDiffPatches: true},
+			},
+		}
+		opts, err := r.buildRuntimeOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.DefaultPatchesDisable).To(BeTrue())
 	})
 })
 
@@ -135,9 +190,36 @@ var _ = Describe("buildRollbackOptions", func() {
 	It("stamps the ownership marker and defaults ForceAdoption on", func() {
 		r := &ReleaseReconciler{}
 		rel := &nelmv1alpha1.Release{}
-		opts := r.buildRollbackOptions(rel, GinkgoT().TempDir())
+		opts, err := r.buildRollbackOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
 		Expect(opts.ReleaseLabels).To(HaveKeyWithValue(ownershipMarkerKey, ownershipMarkerValue))
 		Expect(opts.ForceAdoption).To(BeTrue())
+	})
+
+	It("maps spec.diffPatches into a patches file", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				DiffPatches: []nelmv1alpha1.DiffPatch{{Patch: "del(.spec.replicas)"}},
+			},
+		}
+		opts, err := r.buildRollbackOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.PatchesFiles).To(HaveLen(1))
+	})
+})
+
+var _ = Describe("buildUninstallOptions", func() {
+	It("maps spec.diffPatches into a patches file", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				DiffPatches: []nelmv1alpha1.DiffPatch{{Patch: "del(.spec.replicas)"}},
+			},
+		}
+		opts, err := r.buildUninstallOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.PatchesFiles).To(HaveLen(1))
 	})
 })
 

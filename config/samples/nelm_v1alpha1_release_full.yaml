@@ -105,6 +105,7 @@ spec:
     deletePropagation: Background   # Background | Foreground | Orphan
     noForceAdoption: false          # disable adopting existing resources (default: false)
     noRemoveManualChanges: false    # preserve manual changes to managed resources (default: false)
+    noDefaultDiffPatches: false       # ignore chart-shipped patches.yaml (spec.diffPatches still apply)
     templatesAllowDNS: false        # allow DNS lookups in chart templates
 
   # --- Rollback configuration ---
@@ -113,6 +114,7 @@ spec:
     deletePropagation: Background
     noForceAdoption: false
     noRemoveManualChanges: false
+    noDefaultDiffPatches: false       # ignore chart-shipped patches.yaml during rollback
 
   # --- Uninstall configuration ---
   uninstall:
@@ -120,6 +122,7 @@ spec:
     deleteNamespace: false          # delete the target namespace on uninstall
     deletePropagation: Background
     noRemoveManualChanges: false
+    noDefaultDiffPatches: false       # ignore chart-shipped patches.yaml during uninstall
 
   # --- Resource labels and annotations ---
   extraAnnotations:                 # added to all deployed resources
@@ -135,6 +138,22 @@ spec:
   releaseLabels:                    # added to the Helm release secret
     managed-by: nelm-operator
   appVersion: "2.1.0"              # override chart's appVersion
+
+  # --- Diff patches (drift-detection only) ---
+  # diffPatches ONLY affect drift detection during self-healing reconciliation:
+  # the jq program is applied identically to the live and the desired object
+  # before they are compared, so normalized-away fields never trigger a rollout.
+  # They NEVER change what is rendered or applied to the cluster.
+  diffPatches:
+  - match:
+      kinds: [Deployment]           # bare value = exact match
+      names: ["/web-.*/"]           # /regex/ = anchored full-match regexp
+      charts: [cache]               # matches the chart ALIAS, not the upstream name
+      labels:                       # exact key=value, all must match
+        tier: backend
+    type: jq                        # only "jq" is supported (default)
+    patch: |                        # jq sees raw K8s JSON, must return one object
+      del(.spec.replicas)
 
   # --- Tracking ---
   tracking:

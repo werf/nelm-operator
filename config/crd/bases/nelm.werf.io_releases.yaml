@@ -898,6 +898,72 @@ spec:
                 - kind
                 - name
                 type: object
+              diffPatches:
+                description: |-
+                  DiffPatches are diff-time jq normalization rules. They affect ONLY drift
+                  detection during self-healing reconciliation: each matching rule's jq
+                  transform is applied identically to the live and the desired (dry-apply)
+                  object before they are compared, so normalized-away fields never trigger a
+                  rollout. DiffPatches NEVER change what is rendered or applied to the cluster.
+                items:
+                  description: DiffPatch is a diff-time normalization rule applied
+                    during drift detection.
+                  properties:
+                    match:
+                      description: |-
+                        Match chooses which resources this rule applies to. An empty matcher
+                        matches every resource of the release.
+                      properties:
+                        annotations:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        charts:
+                          items:
+                            type: string
+                          type: array
+                        groups:
+                          items:
+                            type: string
+                          type: array
+                        kinds:
+                          items:
+                            type: string
+                          type: array
+                        labels:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        names:
+                          items:
+                            type: string
+                          type: array
+                        namespaces:
+                          items:
+                            type: string
+                          type: array
+                        versions:
+                          items:
+                            type: string
+                          type: array
+                      type: object
+                    patch:
+                      description: |-
+                        Patch is the jq program run against the whole raw resource object. It must
+                        return exactly one object; anything else fails the plan (fail closed).
+                      minLength: 1
+                      type: string
+                    type:
+                      default: jq
+                      description: Type is the transform kind. Only "jq" is supported;
+                        defaults to "jq".
+                      enum:
+                      - jq
+                      type: string
+                  required:
+                  - patch
+                  type: object
+                type: array
               extraAnnotations:
                 additionalProperties:
                   type: string
@@ -917,6 +983,12 @@ spec:
                     - Foreground
                     - Orphan
                     type: string
+                  noDefaultDiffPatches:
+                    description: |-
+                      NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files (from
+                      the top-level chart and subcharts) during drift detection. Rules declared in
+                      spec.diffPatches still apply.
+                    type: boolean
                   noForceAdoption:
                     type: boolean
                   noInstallCRDs:
@@ -989,6 +1061,11 @@ spec:
                     - Foreground
                     - Orphan
                     type: string
+                  noDefaultDiffPatches:
+                    description: |-
+                      NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files
+                      during the rollback plan. Rules from spec.diffPatches still apply.
+                    type: boolean
                   noForceAdoption:
                     type: boolean
                   noRemoveManualChanges:
@@ -1091,6 +1168,11 @@ spec:
                     - Foreground
                     - Orphan
                     type: string
+                  noDefaultDiffPatches:
+                    description: |-
+                      NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files
+                      during the uninstall plan. Rules from spec.diffPatches still apply.
+                    type: boolean
                   noRemoveManualChanges:
                     type: boolean
                   timeout:
