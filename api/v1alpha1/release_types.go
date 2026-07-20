@@ -126,6 +126,14 @@ type ReleaseSpec struct {
 	// +optional
 	RuntimeLabels map[string]string `json:"runtimeLabels,omitempty"`
 
+	// DiffPatches are diff-time jq normalization rules. They affect ONLY drift
+	// detection during self-healing reconciliation: each matching rule's jq
+	// transform is applied identically to the live and the desired (dry-apply)
+	// object before they are compared, so normalized-away fields never trigger a
+	// rollout. DiffPatches NEVER change what is rendered or applied to the cluster.
+	// +optional
+	DiffPatches []DiffPatch `json:"diffPatches,omitempty"`
+
 	// +optional
 	AppVersion string `json:"appVersion,omitempty"`
 
@@ -710,6 +718,12 @@ type InstallConfig struct {
 	// +optional
 	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
 
+	// NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files (from
+	// the top-level chart and subcharts) during drift detection. Rules declared in
+	// spec.diffPatches still apply.
+	// +optional
+	NoDefaultDiffPatches bool `json:"noDefaultDiffPatches,omitempty"`
+
 	// +optional
 	TemplatesAllowDNS bool `json:"templatesAllowDNS,omitempty"`
 
@@ -731,6 +745,11 @@ type RollbackConfig struct {
 
 	// +optional
 	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
+
+	// NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files
+	// during the rollback plan. Rules from spec.diffPatches still apply.
+	// +optional
+	NoDefaultDiffPatches bool `json:"noDefaultDiffPatches,omitempty"`
 }
 
 type UninstallConfig struct {
@@ -747,6 +766,11 @@ type UninstallConfig struct {
 
 	// +optional
 	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
+
+	// NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files
+	// during the uninstall plan. Rules from spec.diffPatches still apply.
+	// +optional
+	NoDefaultDiffPatches bool `json:"noDefaultDiffPatches,omitempty"`
 }
 
 type TrackingConfig struct {
@@ -900,6 +924,58 @@ func (r *Release) GetReleaseNamespace() string {
 		return r.Spec.TargetNamespace
 	}
 	return r.Namespace
+}
+
+// DiffPatch is a diff-time normalization rule applied during drift detection.
+type DiffPatch struct {
+	// Match chooses which resources this rule applies to. An empty matcher
+	// matches every resource of the release.
+	// +optional
+	Match DiffPatchMatcher `json:"match,omitempty"`
+
+	// Type is the transform kind. Only "jq" is supported; defaults to "jq".
+	// +kubebuilder:validation:Enum=jq
+	// +kubebuilder:default:=jq
+	// +optional
+	Type string `json:"type,omitempty"`
+
+	// Patch is the jq program run against the whole raw resource object. It must
+	// return exactly one object; anything else fails the plan (fail closed).
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Required
+	Patch string `json:"patch"`
+}
+
+// DiffPatchMatcher matches a resource by its metadata. Fields AND together;
+// values within a list OR together; an empty field matches everything. String
+// list values use the /regex/ convention: a bare value is a literal exact match
+// (case-insensitive for groups/versions/kinds, case-sensitive for
+// names/namespaces/charts); a value wrapped in slashes is an anchored full-match
+// regexp (no escape exists for a literal value both starting and ending with a
+// slash, but Kubernetes identifiers and chart aliases cannot contain slashes).
+// Labels and annotations are exact key=value and must all match. The charts
+// selector matches EITHER the originating (sub)chart alias (e.g. "cache", as used
+// in the parent chart's dependencies) OR its full chart-path (e.g.
+// "myapp/charts/cache"), which disambiguates identically-named subcharts in
+// different locations; it uses chart ALIASES, not upstream chart names, and a
+// regexp value matches either form.
+type DiffPatchMatcher struct {
+	// +optional
+	Kinds []string `json:"kinds,omitempty"`
+	// +optional
+	Names []string `json:"names,omitempty"`
+	// +optional
+	Namespaces []string `json:"namespaces,omitempty"`
+	// +optional
+	Groups []string `json:"groups,omitempty"`
+	// +optional
+	Versions []string `json:"versions,omitempty"`
+	// +optional
+	Charts []string `json:"charts,omitempty"`
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 func init() {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"reflect"
@@ -11,22 +12,28 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/yaml"
 
 	"github.com/werf/logboek"
 
 	"github.com/werf/nelm/pkg/action"
 	"github.com/werf/nelm/pkg/common"
+	"github.com/werf/nelm/pkg/kube"
+	"github.com/werf/nelm/pkg/release"
+	"github.com/werf/nelm/pkg/resource/spec"
 
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
@@ -34,6 +41,15 @@ import (
 	"github.com/werf/nelm-operator/internal/config"
 	"github.com/werf/nelm-operator/internal/source"
 	"github.com/werf/nelm-operator/internal/values"
+)
+
+const (
+	ownershipMarkerKey   = "nelm.werf.io/owned-by"
+	ownershipMarkerValue = "nelm-operator"
+
+	reasonForeignChangeAdopted     = "ForeignChangeAdopted"
+	reasonForeignChangeReconciled  = "ForeignChangeReconciled"
+	reasonForeignUninstallRepaired = "ForeignUninstallRepaired"
 )
 
 // +kubebuilder:rbac:groups=nelm.werf.io,resources=releases,verbs=get;list;watch;update;patch
@@ -47,8 +63,9 @@ import (
 
 type ReleaseReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Config config.OperatorConfig
+	Scheme        *runtime.Scheme
+	Config        config.OperatorConfig
+	EventRecorder record.EventRecorder
 }
 
 func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -83,7 +100,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if rel.Spec.Chart != nil {
 		expectedChartSource, err := source.BuildChartSourceFromRelease(r.Config.SourceAPIGroup, r.Config.SourceAPIVersion, &rel)
 		if err != nil {
-			return r.handleFailure(ctx, &rel, false, fmt.Errorf("build source from spec.chart: %w", err))
+			return r.handleFailure(ctx, &rel, false, fmt.Errorf("build source from spec.chart: %w", err), nil, false)
 		}
 
 		expectedChartSourceRef := &nelmv1alpha1.ChartSourceReference{
@@ -116,7 +133,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 
 			if err := r.ensureChartSourceRef(ctx, &rel, expectedChartSource); err != nil {
-				return r.handleFailure(ctx, &rel, false, fmt.Errorf("ensure spec.chart source: %w", err))
+				return r.handleFailure(ctx, &rel, false, fmt.Errorf("ensure spec.chart source: %w", err), nil, false)
 			}
 
 			rel.Status.ChartSourcePhase = nelmv1alpha1.ChartSourcePhaseDisconnecting
@@ -129,7 +146,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// TODO: make sense to mark Reconcile condition as True here.
 			if rel.Status.LastAppliedChartSource != nil && !reflect.DeepEqual(rel.Status.LastAppliedChartSource, rel.Status.CandidateChartSource) {
 				if err := r.cleanupChartSourceRef(ctx, &rel, rel.Status.LastAppliedChartSource); err != nil {
-					return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup last applied chart source: %w", err))
+					return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup last applied chart source: %w", err), nil, false)
 				}
 			}
 
@@ -143,16 +160,16 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		chartRef, err = r.ensureHelmChart(ctx, &rel, expectedChartSource.GetName())
 		if err != nil {
-			return r.handleFailure(ctx, &rel, false, fmt.Errorf("ensure chart source HelmChart: %w", err))
+			return r.handleFailure(ctx, &rel, false, fmt.Errorf("ensure chart source HelmChart: %w", err), nil, false)
 		}
 	} else {
 		// Cleanup chartSource on switching from spec.Chart to spec.chartRef.
 		if rel.Status.LastAppliedChartSource != nil || rel.Status.CandidateChartSource != nil {
 			if err := r.cleanupChartSourceRef(ctx, &rel, rel.Status.LastAppliedChartSource); err != nil {
-				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart source: %w", err))
+				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart source: %w", err), nil, false)
 			}
 			if err := r.cleanupChartSourceRef(ctx, &rel, rel.Status.CandidateChartSource); err != nil {
-				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart source: %w", err))
+				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart source: %w", err), nil, false)
 			}
 			rel.Status.LastAppliedChartSource = nil
 			rel.Status.ChartSourcePhase = ""
@@ -161,7 +178,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, err
 			}
 			if err := r.cleanupHelmChart(ctx, &rel); err != nil {
-				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart HelmChart: %w", err))
+				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart HelmChart: %w", err), nil, false)
 			}
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -172,9 +189,18 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	releaseName := rel.Name
+	releaseNamespace := rel.GetReleaseNamespace()
+
+	preRel, err := r.getRelease(ctx, &rel, releaseName, releaseNamespace)
+	if err != nil {
+		return r.handleFailure(ctx, &rel, false, fmt.Errorf("read release state: %w", err), nil, false)
+	}
+	foreignChange := detectForeignChange(rel.Status.Revision, preRel)
+
 	tempDir, err := os.MkdirTemp(r.Config.TempDir, "nelm-reconcile-*")
 	if err != nil {
-		return r.handleFailure(ctx, &rel, false, fmt.Errorf("create temp directory: %w", err))
+		return r.handleFailure(ctx, &rel, false, fmt.Errorf("create temp directory: %w", err), nil, false)
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -182,11 +208,14 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err != nil {
 		var notReady *source.SourceNotReadyError
 		if errors.As(err, &notReady) {
-			// FIXME: should be reflected in conditions as well.
 			log.Info("Source not ready, waiting for watch event", "message", notReady.Message)
+			r.projectStatusFromStorage(ctx, &rel, releaseName, releaseNamespace, preRel, false)
+			if err := r.Status().Update(ctx, &rel); err != nil {
+				return ctrl.Result{}, fmt.Errorf("update source-not-ready status: %w", err)
+			}
 			return ctrl.Result{}, nil
 		}
-		return r.handleFailure(ctx, &rel, false, fmt.Errorf("resolve chart source: %w", err))
+		return r.handleFailure(ctx, &rel, false, fmt.Errorf("resolve chart source: %w", err), preRel, false)
 	}
 
 	if rel.Status.LastAttemptedArtifactDigest != chartResult.Digest {
@@ -197,7 +226,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		rel.Status.LastAttemptedArtifactRevision = chartResult.Revision
 	}
 
-	return r.reconcileInstall(ctx, &rel, chartResult, tempDir)
+	return r.reconcileInstall(ctx, &rel, chartResult, tempDir, preRel, foreignChange)
 }
 
 func (r *ReleaseReconciler) ensureChartSourceRef(ctx context.Context, rel *nelmv1alpha1.Release, chartSource client.Object) error {
@@ -378,43 +407,176 @@ func getChartSourceReleaseRefNamesSlice(obj client.Object) []string {
 	return strings.Split(val, ",")
 }
 
-func (r *ReleaseReconciler) reconcileInstall(ctx context.Context, rel *nelmv1alpha1.Release, chartResult *source.ChartResult, tempDir string) (ctrl.Result, error) {
+func (r *ReleaseReconciler) reconcileInstall(ctx context.Context, rel *nelmv1alpha1.Release, chartResult *source.ChartResult, tempDir string, preRel *action.ReleaseGetResultRelease, foreignChange bool) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	if rel.Status.ObservedGeneration != rel.Generation {
 		rel.Status.LastActionFailures = 0
 	}
 
-	resolvedValues, err := values.Resolve(ctx, r.Client, rel, chartResult.ValuesFiles, tempDir)
-	if err != nil {
-		return r.handleFailure(ctx, rel, false, fmt.Errorf("resolve values: %w", err))
-	}
-
 	releaseName := rel.Name
 	releaseNamespace := rel.GetReleaseNamespace()
 
-	planOpts := r.buildPlanInstallOptions(rel, chartResult.ChartPath, tempDir, resolvedValues)
+	resolvedValues, err := values.Resolve(ctx, r.Client, rel, chartResult.ValuesFiles, tempDir)
+	if err != nil {
+		return r.handleFailure(ctx, rel, false, fmt.Errorf("resolve values: %w", err), preRel, false)
+	}
+
+	planOpts, err := r.buildPlanInstallOptions(rel, chartResult.ChartPath, tempDir, resolvedValues)
+	if err != nil {
+		return r.handleFailure(ctx, rel, false, fmt.Errorf("build plan install options: %w", err), preRel, false)
+	}
 	planArtifact, planErr := action.ReleasePlanInstall(ctx, releaseName, releaseNamespace, planOpts)
 
 	if planErr == nil {
+		if preRel != nil && preRel.StorageLabels[ownershipMarkerKey] != ownershipMarkerValue {
+			if err := r.stampOwnershipMarker(ctx, rel, releaseName, releaseNamespace, preRel.Revision); err != nil {
+				return r.handleFailure(ctx, rel, false, fmt.Errorf("stamp ownership marker: %w", err), preRel, false)
+			}
+		}
+		if foreignChange && preRel != nil {
+			r.emitEvent(rel, corev1.EventTypeNormal, reasonForeignChangeAdopted,
+				fmt.Sprintf("Adopted foreign release revision %d matching desired state", preRel.Revision))
+		}
 		log.Info("No changes detected, release is up to date")
-		return r.handleSuccess(ctx, rel, releaseName, releaseNamespace)
+		return r.handleSuccess(ctx, rel, releaseName, releaseNamespace, preRel, false)
 	}
 
 	if !errors.Is(planErr, action.ErrResourceChangesPlanned) && !errors.Is(planErr, action.ErrReleaseInstallPlanned) {
-		return r.handleFailure(ctx, rel, false, fmt.Errorf("plan install: %w", planErr))
+		return r.handleFailure(ctx, rel, false, fmt.Errorf("plan install: %w", planErr), preRel, false)
 	}
 
-	installOpts := r.buildInstallOptions(rel, chartResult.ChartPath, tempDir, resolvedValues)
+	installOpts, err := r.buildInstallOptions(rel, chartResult.ChartPath, tempDir, resolvedValues)
+	if err != nil {
+		return r.handleFailure(ctx, rel, false, fmt.Errorf("build install options: %w", err), preRel, false)
+	}
 	installOpts.LegacyPlanArtifact = planArtifact
 	installOpts.PlanArtifactLifetime = 10 * time.Minute
 
 	if err := action.ReleaseInstall(ctx, releaseName, releaseNamespace, installOpts); err != nil {
-		return r.handleFailure(ctx, rel, true, fmt.Errorf("install release: %w", err))
+		return r.handleFailure(ctx, rel, true, fmt.Errorf("install release: %w", err), nil, true)
+	}
+
+	if foreignChange {
+		if preRel != nil {
+			r.emitEvent(rel, corev1.EventTypeWarning, reasonForeignChangeReconciled,
+				"Reconciled foreign release change back to desired state")
+		} else {
+			r.emitEvent(rel, corev1.EventTypeWarning, reasonForeignUninstallRepaired,
+				"Reinstalled release after foreign uninstall")
+		}
 	}
 
 	rel.Status.LastAction = "install"
-	return r.handleSuccess(ctx, rel, releaseName, releaseNamespace)
+	return r.handleSuccess(ctx, rel, releaseName, releaseNamespace, nil, true)
+}
+
+// getRelease reads the latest stored release revision. A missing release is
+// reported as (nil, nil) rather than an error so callers can treat absence as
+// a first-time deploy or a foreign uninstall.
+func (r *ReleaseReconciler) getRelease(ctx context.Context, rel *nelmv1alpha1.Release, releaseName, releaseNamespace string) (*action.ReleaseGetResultRelease, error) {
+	result, err := action.ReleaseGet(ctx, releaseName, releaseNamespace, action.ReleaseGetOptions{
+		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
+		OutputNoPrint:               true,
+		ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
+		ReleaseStorageSQLConnection: r.Config.ReleaseStorageSQLConnection,
+		Revision:                    0,
+	})
+	if err != nil {
+		var notFound *action.ReleaseNotFoundError
+		if errors.As(err, &notFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result.Release, nil
+}
+
+// detectForeignChange reports whether the current storage state diverged from
+// what the operator last recorded. A release with no recorded revision is a
+// first-time adoption, never a foreign change. A higher storage revision or a
+// latest revision missing the ownership marker (helm does not carry custom
+// labels onto a new revision) both indicate an out-of-band change.
+func detectForeignChange(recordedRevision int, rel *action.ReleaseGetResultRelease) bool {
+	if recordedRevision == 0 {
+		return false
+	}
+	if rel == nil {
+		return true
+	}
+	if rel.Revision > recordedRevision {
+		return true
+	}
+	return rel.StorageLabels[ownershipMarkerKey] != ownershipMarkerValue
+}
+
+// stampOwnershipMarker merges the ownership marker into the release storage
+// labels via nelm, without creating a new revision. It works across all
+// storage drivers (secret, configmap, sql, memory).
+func (r *ReleaseReconciler) stampOwnershipMarker(ctx context.Context, rel *nelmv1alpha1.Release, releaseName, releaseNamespace string, revision int) error {
+	log := logf.FromContext(ctx)
+
+	kubeConfig, err := kube.NewKubeConfig(ctx, kube.KubeConfigOptions{
+		KubeConnectionOptions: r.buildKubeConnectionOptions(rel),
+		KubeContextNamespace:  releaseNamespace,
+	})
+	if err != nil {
+		return fmt.Errorf("construct kube config: %w", err)
+	}
+
+	clientFactory, err := kube.NewClientFactory(ctx, kubeConfig)
+	if err != nil {
+		return fmt.Errorf("construct kube client factory: %w", err)
+	}
+
+	releaseStorage, err := release.NewReleaseStorage(ctx, releaseNamespace, r.Config.ReleaseStorageDriver, clientFactory, release.ReleaseStorageOptions{
+		SQLConnection: r.Config.ReleaseStorageSQLConnection,
+	})
+	if err != nil {
+		return fmt.Errorf("construct release storage: %w", err)
+	}
+
+	if err := releaseStorage.UpdateLabels(releaseName, revision, map[string]string{ownershipMarkerKey: ownershipMarkerValue}); err != nil {
+		return fmt.Errorf("update release labels: %w", err)
+	}
+
+	log.Info("Stamped ownership marker on adopted release", "revision", revision)
+	return nil
+}
+
+// projectStatusFromStorage recomputes release-derived status fields from the
+// current stored release. When refetch is false the caller-supplied release is
+// used as-is (nil means the release is absent, so the fields are cleared);
+// when true a fresh read is issued and, on read error, prior fields are left
+// untouched rather than failing the reconcile.
+func (r *ReleaseReconciler) projectStatusFromStorage(ctx context.Context, rel *nelmv1alpha1.Release, releaseName, releaseNamespace string, captured *action.ReleaseGetResultRelease, refetch bool) {
+	log := logf.FromContext(ctx)
+
+	current := captured
+	if refetch {
+		var err error
+		current, err = r.getRelease(ctx, rel, releaseName, releaseNamespace)
+		if err != nil {
+			log.Error(err, "Failed to project status from release storage")
+			return
+		}
+	}
+
+	if current == nil {
+		rel.Status.Revision = 0
+		rel.Status.RevisionStatus = ""
+		return
+	}
+
+	rel.Status.Revision = current.Revision
+	rel.Status.RevisionStatus = string(current.Status)
+}
+
+func (r *ReleaseReconciler) emitEvent(rel *nelmv1alpha1.Release, eventtype, reason, message string) {
+	if r.EventRecorder == nil {
+		return
+	}
+	r.EventRecorder.Event(rel, eventtype, reason, message)
 }
 
 func (r *ReleaseReconciler) reconcileDelete(ctx context.Context, rel *nelmv1alpha1.Release) (ctrl.Result, error) {
@@ -440,7 +602,10 @@ func (r *ReleaseReconciler) reconcileDelete(ctx context.Context, rel *nelmv1alph
 	}
 	defer os.RemoveAll(tempDir)
 
-	uninstallOpts := r.buildUninstallOptions(rel, tempDir)
+	uninstallOpts, err := r.buildUninstallOptions(rel, tempDir)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("build uninstall options: %w", err)
+	}
 	releaseName := rel.Name
 	releaseNamespace := rel.GetReleaseNamespace()
 
@@ -468,25 +633,8 @@ func (r *ReleaseReconciler) reconcileDelete(ctx context.Context, rel *nelmv1alph
 	return ctrl.Result{}, nil
 }
 
-func (r *ReleaseReconciler) handleSuccess(ctx context.Context, rel *nelmv1alpha1.Release, releaseName, releaseNamespace string) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
-
-	historyResult, err := action.ReleaseHistory(ctx, releaseName, releaseNamespace, action.ReleaseHistoryOptions{
-		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
-		OutputNoPrint:               true,
-		ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
-		ReleaseStorageSQLConnection: r.Config.ReleaseStorageSQLConnection,
-		RevisionsLimit:              1,
-	})
-	if err != nil {
-		log.Error(err, "Failed to fetch release history after successful install")
-	} else if len(historyResult.Releases) == 0 {
-		log.Error(nil, "No releases found in history after successful install")
-	} else {
-		latest := historyResult.Releases[len(historyResult.Releases)-1]
-		rel.Status.Revision = latest.Revision
-		rel.Status.RevisionStatus = string(latest.Status)
-	}
+func (r *ReleaseReconciler) handleSuccess(ctx context.Context, rel *nelmv1alpha1.Release, releaseName, releaseNamespace string, captured *action.ReleaseGetResultRelease, refetch bool) (ctrl.Result, error) {
+	r.projectStatusFromStorage(ctx, rel, releaseName, releaseNamespace, captured, refetch)
 
 	rel.Status.LastActionFailures = 0
 	rel.Status.ObservedGeneration = rel.Generation
@@ -518,8 +666,10 @@ func (r *ReleaseReconciler) handleSuccess(ctx context.Context, rel *nelmv1alpha1
 	return ctrl.Result{RequeueAfter: rel.Spec.Interval.Duration}, nil
 }
 
-func (r *ReleaseReconciler) handleFailure(ctx context.Context, rel *nelmv1alpha1.Release, installAttempted bool, reconcileErr error) (ctrl.Result, error) {
+func (r *ReleaseReconciler) handleFailure(ctx context.Context, rel *nelmv1alpha1.Release, installAttempted bool, reconcileErr error, captured *action.ReleaseGetResultRelease, refetch bool) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+
+	r.projectStatusFromStorage(ctx, rel, rel.Name, rel.GetReleaseNamespace(), captured, refetch)
 
 	rel.Status.LastActionFailures++
 	rel.Status.ObservedGeneration = rel.Generation
@@ -588,10 +738,7 @@ func (r *ReleaseReconciler) handleFailure(ctx context.Context, rel *nelmv1alpha1
 		return ctrl.Result{}, fmt.Errorf("update failure status: %w", err)
 	}
 
-	backoff := time.Duration(1<<rel.Status.LastActionFailures) * 15 * time.Second
-	if backoff > 5*time.Minute {
-		backoff = 5 * time.Minute
-	}
+	backoff := min(time.Duration(1<<rel.Status.LastActionFailures)*15*time.Second, 5*time.Minute)
 
 	return ctrl.Result{RequeueAfter: backoff}, nil
 }
@@ -606,7 +753,11 @@ func (r *ReleaseReconciler) attemptRollback(ctx context.Context, rel *nelmv1alph
 	}
 	defer os.RemoveAll(tempDir)
 
-	rollbackOpts := r.buildRollbackOptions(rel, tempDir)
+	rollbackOpts, err := r.buildRollbackOptions(rel, tempDir)
+	if err != nil {
+		log.Error(err, "Auto-rollback failed")
+		return
+	}
 	releaseName := rel.Name
 	releaseNamespace := rel.GetReleaseNamespace()
 
@@ -615,23 +766,7 @@ func (r *ReleaseReconciler) attemptRollback(ctx context.Context, rel *nelmv1alph
 	} else {
 		log.Info("Auto-rollback succeeded")
 		rel.Status.LastAction = "rollback"
-
-		historyResult, historyErr := action.ReleaseHistory(ctx, releaseName, releaseNamespace, action.ReleaseHistoryOptions{
-			KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
-			OutputNoPrint:               true,
-			ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
-			ReleaseStorageSQLConnection: r.Config.ReleaseStorageSQLConnection,
-			RevisionsLimit:              1,
-		})
-		if historyErr != nil {
-			log.Error(historyErr, "Failed to fetch release history after rollback")
-		} else if len(historyResult.Releases) == 0 {
-			log.Error(nil, "No releases found in history after rollback")
-		} else {
-			latest := historyResult.Releases[len(historyResult.Releases)-1]
-			rel.Status.Revision = latest.Revision
-			rel.Status.RevisionStatus = string(latest.Status)
-		}
+		r.projectStatusFromStorage(ctx, rel, releaseName, releaseNamespace, nil, true)
 	}
 }
 
@@ -717,7 +852,7 @@ func (r *ReleaseReconciler) buildValidationOptions(rel *nelmv1alpha1.Release) co
 	return opts
 }
 
-func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release) common.ReleaseInstallRuntimeOptions {
+func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release, tempDir string) (common.ReleaseInstallRuntimeOptions, error) {
 	opts := common.ReleaseInstallRuntimeOptions{
 		ResourceValidationOptions:   r.buildValidationOptions(rel),
 		ExtraAnnotations:            rel.Spec.ExtraAnnotations,
@@ -725,10 +860,17 @@ func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release) commo
 		ExtraRuntimeAnnotations:     rel.Spec.RuntimeAnnotations,
 		ExtraRuntimeLabels:          rel.Spec.RuntimeLabels,
 		ReleaseInfoAnnotations:      rel.Spec.ReleaseInfoAnnotations,
-		ReleaseLabels:               rel.Spec.ReleaseLabels,
+		ReleaseLabels:               ownershipLabels(rel.Spec.ReleaseLabels),
 		ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
 		ReleaseStorageSQLConnection: r.Config.ReleaseStorageSQLConnection,
+		ForceAdoption:               true,
 	}
+
+	patchesFiles, err := diffPatchesFiles(rel.Spec.DiffPatches, tempDir)
+	if err != nil {
+		return common.ReleaseInstallRuntimeOptions{}, err
+	}
+	opts.PatchesFiles = patchesFiles
 
 	if rel.Spec.ReleaseStorage != nil {
 		opts.ReleaseHistoryLimit = rel.Spec.ReleaseStorage.HistoryLimit
@@ -740,9 +882,72 @@ func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release) commo
 		opts.DefaultDeletePropagation = install.DeletePropagation
 		opts.ForceAdoption = !install.NoForceAdoption
 		opts.NoRemoveManualChanges = install.NoRemoveManualChanges
+		opts.DefaultPatchesDisable = install.NoDefaultDiffPatches
 	}
 
-	return opts
+	return opts, nil
+}
+
+func diffPatchesFiles(patches []nelmv1alpha1.DiffPatch, tempDir string) ([]string, error) {
+	patchesFile, err := writeDiffPatchesFile(patches, tempDir)
+	if err != nil {
+		return nil, fmt.Errorf("write diff patches file: %w", err)
+	}
+	if patchesFile == "" {
+		return nil, nil
+	}
+
+	return []string{patchesFile}, nil
+}
+
+func writeDiffPatchesFile(patches []nelmv1alpha1.DiffPatch, tempDir string) (string, error) {
+	if len(patches) == 0 {
+		return "", nil
+	}
+
+	file := spec.PatchesFile{DiffPatches: make([]spec.DiffPatch, 0, len(patches))}
+	for _, p := range patches {
+		file.DiffPatches = append(file.DiffPatches, spec.DiffPatch{
+			Match: spec.ResourceMatcher{
+				Kinds:       p.Match.Kinds,
+				Names:       p.Match.Names,
+				Namespaces:  p.Match.Namespaces,
+				Groups:      p.Match.Groups,
+				Versions:    p.Match.Versions,
+				Charts:      p.Match.Charts,
+				Labels:      p.Match.Labels,
+				Annotations: p.Match.Annotations,
+			},
+			Type:  spec.DiffPatchType(p.Type),
+			Patch: p.Patch,
+		})
+	}
+
+	data, err := yaml.Marshal(file)
+	if err != nil {
+		return "", fmt.Errorf("marshal patches: %w", err)
+	}
+
+	f, err := os.CreateTemp(tempDir, "diff-patches-*.yaml")
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := f.Write(data); err != nil {
+		return "", fmt.Errorf("write temp file: %w", err)
+	}
+
+	return f.Name(), nil
+}
+
+// ownershipLabels returns a fresh label map carrying the user-supplied release
+// labels with the ownership marker forced on, without mutating the input map.
+func ownershipLabels(userLabels map[string]string) map[string]string {
+	merged := make(map[string]string, len(userLabels)+1)
+	maps.Copy(merged, userLabels)
+	merged[ownershipMarkerKey] = ownershipMarkerValue
+	return merged
 }
 
 func (r *ReleaseReconciler) buildValuesOptions(rel *nelmv1alpha1.Release, resolvedValues *values.ResolvedValues) common.ValuesOptions {
@@ -767,10 +972,15 @@ func (r *ReleaseReconciler) buildSecretValuesOptions(rel *nelmv1alpha1.Release, 
 	return opts
 }
 
-func (r *ReleaseReconciler) buildPlanInstallOptions(rel *nelmv1alpha1.Release, chartPath string, tempDir string, resolvedValues *values.ResolvedValues) action.ReleasePlanInstallOptions {
+func (r *ReleaseReconciler) buildPlanInstallOptions(rel *nelmv1alpha1.Release, chartPath string, tempDir string, resolvedValues *values.ResolvedValues) (action.ReleasePlanInstallOptions, error) {
+	runtimeOpts, err := r.buildRuntimeOptions(rel, tempDir)
+	if err != nil {
+		return action.ReleasePlanInstallOptions{}, err
+	}
+
 	return action.ReleasePlanInstallOptions{
 		KubeConnectionOptions:        r.buildKubeConnectionOptions(rel),
-		ReleaseInstallRuntimeOptions: r.buildRuntimeOptions(rel),
+		ReleaseInstallRuntimeOptions: runtimeOpts,
 		ValuesOptions:                r.buildValuesOptions(rel, resolvedValues),
 		SecretValuesOptions:          r.buildSecretValuesOptions(rel, resolvedValues),
 
@@ -785,13 +995,18 @@ func (r *ReleaseReconciler) buildPlanInstallOptions(rel *nelmv1alpha1.Release, c
 		TemplatesAllowDNS:       installTemplatesAllowDNS(rel),
 		TempDirPath:             tempDir,
 		Timeout:                 rel.GetInstallTimeout(),
-	}
+	}, nil
 }
 
-func (r *ReleaseReconciler) buildInstallOptions(rel *nelmv1alpha1.Release, chartPath string, tempDir string, resolvedValues *values.ResolvedValues) action.ReleaseInstallOptions {
+func (r *ReleaseReconciler) buildInstallOptions(rel *nelmv1alpha1.Release, chartPath string, tempDir string, resolvedValues *values.ResolvedValues) (action.ReleaseInstallOptions, error) {
+	runtimeOpts, err := r.buildRuntimeOptions(rel, tempDir)
+	if err != nil {
+		return action.ReleaseInstallOptions{}, err
+	}
+
 	return action.ReleaseInstallOptions{
 		KubeConnectionOptions:        r.buildKubeConnectionOptions(rel),
-		ReleaseInstallRuntimeOptions: r.buildRuntimeOptions(rel),
+		ReleaseInstallRuntimeOptions: runtimeOpts,
 		TrackingOptions:              r.buildTrackingOptions(rel),
 		ValuesOptions:                r.buildValuesOptions(rel, resolvedValues),
 		SecretValuesOptions:          r.buildSecretValuesOptions(rel, resolvedValues),
@@ -806,11 +1021,17 @@ func (r *ReleaseReconciler) buildInstallOptions(rel *nelmv1alpha1.Release, chart
 		TemplatesAllowDNS:       installTemplatesAllowDNS(rel),
 		TempDirPath:             tempDir,
 		Timeout:                 rel.GetInstallTimeout(),
-	}
+	}, nil
 }
 
-func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, tempDir string) action.ReleaseRollbackOptions {
+func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, tempDir string) (action.ReleaseRollbackOptions, error) {
+	patchesFiles, err := diffPatchesFiles(rel.Spec.DiffPatches, tempDir)
+	if err != nil {
+		return action.ReleaseRollbackOptions{}, err
+	}
+
 	opts := action.ReleaseRollbackOptions{
+		PatchesFiles:                patchesFiles,
 		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
 		ResourceValidationOptions:   r.buildValidationOptions(rel),
 		TrackingOptions:             r.buildTrackingOptions(rel),
@@ -822,7 +1043,8 @@ func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, temp
 		ExtraRuntimeAnnotations:     rel.Spec.RuntimeAnnotations,
 		ExtraRuntimeLabels:          rel.Spec.RuntimeLabels,
 		ReleaseInfoAnnotations:      rel.Spec.ReleaseInfoAnnotations,
-		ReleaseLabels:               rel.Spec.ReleaseLabels,
+		ReleaseLabels:               ownershipLabels(rel.Spec.ReleaseLabels),
+		ForceAdoption:               true,
 		Revision:                    0,
 	}
 
@@ -835,13 +1057,20 @@ func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, temp
 		opts.DefaultDeletePropagation = rb.DeletePropagation
 		opts.ForceAdoption = !rb.NoForceAdoption
 		opts.NoRemoveManualChanges = rb.NoRemoveManualChanges
+		opts.DefaultPatchesDisable = rb.NoDefaultDiffPatches
 	}
 
-	return opts
+	return opts, nil
 }
 
-func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tempDir string) action.ReleaseUninstallOptions {
+func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tempDir string) (action.ReleaseUninstallOptions, error) {
+	patchesFiles, err := diffPatchesFiles(rel.Spec.DiffPatches, tempDir)
+	if err != nil {
+		return action.ReleaseUninstallOptions{}, err
+	}
+
 	opts := action.ReleaseUninstallOptions{
+		PatchesFiles:                patchesFiles,
 		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
 		TrackingOptions:             r.buildTrackingOptions(rel),
 		ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
@@ -860,9 +1089,10 @@ func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tem
 		opts.DeleteReleaseNamespace = un.DeleteNamespace
 		opts.DefaultDeletePropagation = un.DeletePropagation
 		opts.NoRemoveManualChanges = un.NoRemoveManualChanges
+		opts.DefaultPatchesDisable = un.NoDefaultDiffPatches
 	}
 
-	return opts
+	return opts, nil
 }
 
 func (r *ReleaseReconciler) setCondition(rel *nelmv1alpha1.Release, condition metav1.Condition) {

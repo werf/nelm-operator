@@ -9,12 +9,13 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/werf/logboek v0.6.1
-	github.com/werf/nelm v1.23.3-0.20260617131144-c22d5fd3c5dd
+	github.com/werf/nelm v1.26.2-0.20260714212319-5c9ccecdb898
 	k8s.io/api v0.35.3
 	k8s.io/apiextensions-apiserver v0.35.3
 	k8s.io/apimachinery v0.35.3
 	k8s.io/client-go v0.35.3
 	sigs.k8s.io/controller-runtime v0.23.3
+	sigs.k8s.io/yaml v1.6.0
 )
 
 require (
@@ -100,6 +101,8 @@ require (
 	github.com/hofstadter-io/cinful v1.0.0 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/itchyny/gojq v0.12.19 // indirect
+	github.com/itchyny/timefmt-go v0.1.8 // indirect
 	github.com/jedib0t/go-pretty/v6 v6.7.8 // indirect
 	github.com/jellydator/ttlcache/v3 v3.4.0 // indirect
 	github.com/jmoiron/sqlx v1.4.0 // indirect
@@ -148,7 +151,7 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/wI2L/jsondiff v0.7.0 // indirect
 	github.com/werf/common-go v0.0.0-20260428201303-b0dcadceca5c // indirect
-	github.com/werf/kubedog v0.13.1-0.20260521123751-aabed6e8f8ac // indirect
+	github.com/werf/kubedog v0.13.1-0.20260709123314-5d578345082f // indirect
 	github.com/werf/lockgate v0.1.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
@@ -204,5 +207,4 @@ require (
 	sigs.k8s.io/kustomize/kyaml v0.21.1 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2 // indirect
-	sigs.k8s.io/yaml v1.6.0 // indirect
 )
