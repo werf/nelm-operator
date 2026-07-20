@@ -24,6 +24,7 @@ import (
 // downloaded chart artifact and the source revision it was produced from.
 type ChartResult struct {
 	ChartPath   string
+	Digest      string
 	Revision    string
 	ValuesFiles []string
 }
@@ -51,7 +52,7 @@ func BuildChartSourceFromRelease(sourceAPIGroup string, sourceAPIVersion string,
 
 	switch {
 	case chart.GitRepositoryChartSource != nil:
-		source = buildGitRepository(sourceAPIGroup, sourceAPIVersion, rel, chart.GitRepositoryChartSource)
+		source = buildGitRepository(sourceAPIGroup, sourceAPIVersion, rel)
 		expectedSourceHashedName, err := GetObjectHashedName(source)
 		if err != nil {
 			return nil, fmt.Errorf("set chart source hashed name: %w", err)
@@ -59,7 +60,7 @@ func BuildChartSourceFromRelease(sourceAPIGroup string, sourceAPIVersion string,
 		source.SetName(expectedSourceHashedName)
 
 	case chart.HelmRepositoryChartSource != nil:
-		source = buildHelmRepository(sourceAPIGroup, sourceAPIVersion, rel, chart.HelmRepositoryChartSource)
+		source = buildHelmRepository(sourceAPIGroup, sourceAPIVersion, rel)
 		expectedSourceHashedName, err := GetObjectHashedName(source)
 		if err != nil {
 			return nil, fmt.Errorf("set chart source hashed name: %w", err)
@@ -67,7 +68,7 @@ func BuildChartSourceFromRelease(sourceAPIGroup string, sourceAPIVersion string,
 		source.SetName(expectedSourceHashedName)
 
 	case chart.BucketChartSource != nil:
-		source = buildBucket(sourceAPIGroup, sourceAPIVersion, rel, chart.BucketChartSource)
+		source = buildBucket(sourceAPIGroup, sourceAPIVersion, rel)
 		expectedSourceHashedName, err := GetObjectHashedName(source)
 		if err != nil {
 			return nil, fmt.Errorf("set chart source hashed name: %w", err)
@@ -76,7 +77,7 @@ func BuildChartSourceFromRelease(sourceAPIGroup string, sourceAPIVersion string,
 
 	case chart.OCIRepositoryChartSource != nil:
 		// oci is terminal on its own; no companion HelmChart is created.
-		source = buildOCIRepository(sourceAPIGroup, sourceAPIVersion, rel, chart.OCIRepositoryChartSource)
+		source = buildOCIRepository(sourceAPIGroup, sourceAPIVersion, rel)
 		expectedHashedName, err := GetObjectHashedName(source)
 		if err != nil {
 			return nil, fmt.Errorf("set chart source hashed name: %w", err)
@@ -126,8 +127,9 @@ func extractArtifact(ctx context.Context, obj *unstructured.Unstructured, tempDi
 	}
 
 	revision, _, _ := unstructured.NestedString(obj.Object, "status", "artifact", "revision")
+	digest, _, _ := unstructured.NestedString(obj.Object, "status", "artifact", "digest")
 
-	// TODO: verify ability to use custom values files embeded into chart artifact.
+	// TODO: verify ability to use custom values files embedded into chart artifact.
 	var valuesFiles []string
 
 	if files, found, err := unstructured.NestedStringSlice(obj.Object, "spec", "valuesFiles"); err != nil {
@@ -143,6 +145,7 @@ func extractArtifact(ctx context.Context, obj *unstructured.Unstructured, tempDi
 
 	return &ChartResult{
 		ChartPath:   chartPath,
+		Digest:      digest,
 		Revision:    revision,
 		ValuesFiles: valuesFiles,
 	}, nil

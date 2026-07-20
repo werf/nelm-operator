@@ -10,7 +10,9 @@ import (
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 )
 
-func buildOCIRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release, oci *nelmv1alpha1.OCIRepositoryChartSource) *sourcev1.OCIRepository {
+func buildOCIRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release) *sourcev1.OCIRepository {
+	oci := rel.Spec.Chart.OCIRepositoryChartSource
+
 	// nelm exposes the OCI reference selectors (tag/semver/semverFilter/digest)
 	// as flat fields, whereas FluxCD nests them in OCIRepositoryRef. Only build
 	// the nested ref when at least one selector is set; otherwise leave it nil

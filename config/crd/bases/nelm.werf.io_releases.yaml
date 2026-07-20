@@ -1330,6 +1330,11 @@ spec:
                 - name
                 - namespace
                 type: object
+              lastAttemptedArtifactDigest:
+                description: |-
+                  LastAttemptedArtifactDigest is the digest of the last reconciliation attempt.
+                  This is only set for OCIRepository sources.
+                type: string
               lastAttemptedArtifactRevision:
                 description: |-
                   LastAttemptedArtifactRevision is the Source revision of the last reconciliation

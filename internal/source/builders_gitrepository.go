@@ -10,7 +10,9 @@ import (
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 )
 
-func buildGitRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release, git *nelmv1alpha1.GitRepositoryChartSource) *sourcev1.GitRepository {
+func buildGitRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release) *sourcev1.GitRepository {
+	git := rel.Spec.Chart.GitRepositoryChartSource
+
 	res := sourcev1.GitRepository{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: sourceAPIGroup + "/" + sourceAPIVersion,
