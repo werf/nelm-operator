@@ -65,7 +65,7 @@ type ReleaseSpec struct {
 	// +optional
 	TargetNamespace string `json:"targetNamespace,omitempty"`
 
-	// +kubebuilder:default="5m"
+	// +kubebuilder:default="1m"
 	// +optional
 	Interval metav1.Duration `json:"interval,omitempty"`
 

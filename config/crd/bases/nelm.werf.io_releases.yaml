@@ -931,7 +931,7 @@ spec:
                     type: string
                 type: object
               interval:
-                default: 5m
+                default: 1m
                 type: string
               noDefaultSecretValues:
                 type: boolean
