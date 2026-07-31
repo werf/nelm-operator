@@ -828,8 +828,6 @@ func (r *ReleaseReconciler) buildTrackingOptions(rel *nelmv1alpha1.Release) comm
 
 func (r *ReleaseReconciler) buildValidationOptions(rel *nelmv1alpha1.Release) common.ResourceValidationOptions {
 	opts := common.ResourceValidationOptions{
-		ValidationKubeVersion:         common.DefaultResourceValidationKubeVersion,
-		ValidationSchemas:             common.DefaultResourceValidationSchema,
 		ValidationSchemaCacheLifetime: common.DefaultResourceValidationCacheLifetime,
 	}
 
@@ -841,11 +839,7 @@ func (r *ReleaseReconciler) buildValidationOptions(rel *nelmv1alpha1.Release) co
 	opts.NoResourceValidation = v.NoResourceValidation
 	opts.NoValuesSchemaValidation = v.NoValuesSchemaValidation
 	opts.LocalResourceValidation = v.LocalOnly
-	if v.KubeVersion != "" {
-		opts.ValidationKubeVersion = v.KubeVersion
-	}
 	opts.ValidationSkip = v.Skip
-	opts.ValidationSchemas = v.Schemas
 	opts.ValidationExtraSchemas = v.ExtraSchemas
 	opts.ValidationSchemaCacheLifetime = v.SchemaCacheLifetime.Duration
 

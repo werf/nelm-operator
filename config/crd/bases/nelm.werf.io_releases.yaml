@@ -1184,8 +1184,6 @@ spec:
                     items:
                       type: string
                     type: array
-                  kubeVersion:
-                    type: string
                   localOnly:
                     type: boolean
                   noResourceValidation:
@@ -1194,10 +1192,6 @@ spec:
                     type: boolean
                   schemaCacheLifetime:
                     type: string
-                  schemas:
-                    items:
-                      type: string
-                    type: array
                   skip:
                     items:
                       type: string

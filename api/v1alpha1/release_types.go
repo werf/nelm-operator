@@ -818,13 +818,7 @@ type ValidationConfig struct {
 	LocalOnly bool `json:"localOnly,omitempty"`
 
 	// +optional
-	KubeVersion string `json:"kubeVersion,omitempty"`
-
-	// +optional
 	Skip []string `json:"skip,omitempty"`
-
-	// +optional
-	Schemas []string `json:"schemas,omitempty"`
 
 	// +optional
 	ExtraSchemas []string `json:"extraSchemas,omitempty"`
