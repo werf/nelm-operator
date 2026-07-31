@@ -109,6 +109,19 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+.PHONY: check-deno-version
+check-deno-version: ## Verify DENO_VERSION in Dockerfile matches the Deno version nelm expects
+	@go mod download github.com/werf/nelm
+	@image_version="$$(sed -n 's/^ARG DENO_VERSION=//p' Dockerfile)"; \
+	nelm_version="$$(sed -n 's/^const denoVersion = "\(.*\)"$$/\1/p' "$$(go list -m -f '{{.Dir}}' github.com/werf/nelm)/pkg/ts/downloader.go")"; \
+	if [ -z "$$image_version" ]; then echo "cannot read ARG DENO_VERSION from Dockerfile"; exit 1; fi; \
+	if [ -z "$$nelm_version" ]; then echo "cannot read denoVersion from nelm's pkg/ts/downloader.go"; exit 1; fi; \
+	if [ "$$image_version" != "$$nelm_version" ]; then \
+		echo "Dockerfile bundles Deno $$image_version, but nelm expects $$nelm_version: update ARG DENO_VERSION"; \
+		exit 1; \
+	fi; \
+	echo "Deno $$image_version matches nelm"
+
 ##@ Build
 
 .PHONY: build
@@ -136,7 +149,8 @@ docker-push: ## Push docker image with the manager.
 # - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 # - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
 # To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
-PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
+# Limited to amd64/arm64: Deno, which the image bundles for TypeScript charts, publishes no other linux builds.
+PLATFORMS ?= linux/arm64,linux/amd64
 .PHONY: docker-buildx
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile

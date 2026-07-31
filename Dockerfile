@@ -1,3 +1,6 @@
+# Must match nelm's denoVersion constant in pkg/ts/downloader.go, see `make check-deno-version`.
+ARG DENO_VERSION=2.7.1
+
 FROM golang:1.25 AS builder
 
 ARG TARGETOS
@@ -16,12 +19,17 @@ COPY internal/ internal/
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
 
-FROM gcr.io/distroless/static:nonroot
+FROM denoland/deno:bin-${DENO_VERSION} AS deno
 
-ENV HOME=/tmp
+# Deno is dynamically linked against glibc, so the final image cannot be distroless/static.
+FROM gcr.io/distroless/cc-debian12:nonroot
+
+ENV HOME=/tmp \
+    NELM_DENO_BINARY_PATH=/usr/local/bin/deno
 
 WORKDIR /
 
+COPY --from=deno /deno /usr/local/bin/deno
 COPY --from=builder /nelm-operator/manager .
 
 USER 65532:65532

@@ -25,5 +25,7 @@ jobs:
 
       - name: Check linter configuration
         run: make lint-config
+      - name: Check bundled Deno version
+        run: make check-deno-version
       - name: Run linter
         run: make lint
