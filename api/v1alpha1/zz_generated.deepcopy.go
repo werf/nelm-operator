@@ -794,11 +794,6 @@ func (in *ValidationConfig) DeepCopyInto(out *ValidationConfig) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.Schemas != nil {
-		in, out := &in.Schemas, &out.Schemas
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
 	if in.ExtraSchemas != nil {
 		in, out := &in.ExtraSchemas, &out.ExtraSchemas
 		*out = make([]string, len(*in))
