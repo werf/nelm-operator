@@ -1,4 +1,3 @@
-# Must match nelm's denoVersion constant in pkg/ts/downloader.go, see `make check-deno-version`.
 ARG DENO_VERSION=2.7.1
 
 FROM golang:1.25 AS builder

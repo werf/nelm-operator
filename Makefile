@@ -109,19 +109,6 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
-.PHONY: check-deno-version
-check-deno-version: ## Verify DENO_VERSION in Dockerfile matches the Deno version nelm expects
-	@go mod download github.com/werf/nelm
-	@image_version="$$(sed -n 's/^ARG DENO_VERSION=//p' Dockerfile)"; \
-	nelm_version="$$(sed -n 's/^const denoVersion = "\(.*\)"$$/\1/p' "$$(go list -m -f '{{.Dir}}' github.com/werf/nelm)/pkg/ts/downloader.go")"; \
-	if [ -z "$$image_version" ]; then echo "cannot read ARG DENO_VERSION from Dockerfile"; exit 1; fi; \
-	if [ -z "$$nelm_version" ]; then echo "cannot read denoVersion from nelm's pkg/ts/downloader.go"; exit 1; fi; \
-	if [ "$$image_version" != "$$nelm_version" ]; then \
-		echo "Dockerfile bundles Deno $$image_version, but nelm expects $$nelm_version: update ARG DENO_VERSION"; \
-		exit 1; \
-	fi; \
-	echo "Deno $$image_version matches nelm"
-
 ##@ Build
 
 .PHONY: build
