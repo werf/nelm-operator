@@ -1,4 +1,4 @@
-ARG DENO_VERSION=2.7.1
+ARG DENO_VERSION=2.9.4
 
 FROM golang:1.25 AS builder
 
