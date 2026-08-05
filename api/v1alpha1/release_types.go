@@ -815,9 +815,6 @@ type ValidationConfig struct {
 	NoValuesSchemaValidation bool `json:"noValuesSchemaValidation,omitempty"`
 
 	// +optional
-	LocalOnly bool `json:"localOnly,omitempty"`
-
-	// +optional
 	Skip []string `json:"skip,omitempty"`
 
 	// +optional

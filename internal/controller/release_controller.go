@@ -838,7 +838,6 @@ func (r *ReleaseReconciler) buildValidationOptions(rel *nelmv1alpha1.Release) co
 	v := rel.Spec.Validation
 	opts.NoResourceValidation = v.NoResourceValidation
 	opts.NoValuesSchemaValidation = v.NoValuesSchemaValidation
-	opts.LocalResourceValidation = v.LocalOnly
 	opts.ValidationSkip = v.Skip
 	opts.ValidationExtraSchemas = v.ExtraSchemas
 	opts.ValidationSchemaCacheLifetime = v.SchemaCacheLifetime.Duration
