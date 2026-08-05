@@ -9,7 +9,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/werf/logboek v0.6.1
-	github.com/werf/nelm v1.26.2-0.20260731170307-2a29517d8d19
+	github.com/werf/nelm v1.26.2-0.20260805091730-9d049189ce4e
 	k8s.io/api v0.35.3
 	k8s.io/apiextensions-apiserver v0.35.3
 	k8s.io/apimachinery v0.35.3
