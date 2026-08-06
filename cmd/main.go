@@ -82,7 +82,7 @@ func main() {
 	flag.IntVar(&cfg.NetworkParallelism, "network-parallelism", 30, "Limit of network-related tasks to run in parallel per reconcile.")
 
 	// TypeScript / Misc.
-	flag.StringVar(&cfg.DenoBinaryPath, "deno-binary-path", "", "Path to the Deno binary for TypeScript chart rendering.")
+	flag.StringVar(&cfg.DenoBinaryPath, "deno-binary-path", "", "Path to the Deno binary for TypeScript chart rendering. Falls back to $NELM_DENO_BINARY_PATH, then to downloading Deno at runtime.")
 	flag.StringVar(&cfg.TempDir, "temp-dir", "", "Directory for temporary files.")
 
 	// Logging.
@@ -115,6 +115,10 @@ func main() {
 
 	if v := os.Getenv("NELM_RELEASE_STORAGE_SQL_CONNECTION"); v != "" && cfg.ReleaseStorageSQLConnection == "" {
 		cfg.ReleaseStorageSQLConnection = v
+	}
+
+	if v := os.Getenv("NELM_DENO_BINARY_PATH"); v != "" && cfg.DenoBinaryPath == "" {
+		cfg.DenoBinaryPath = v
 	}
 
 	cfg.MetricsCertDir = metricsCertDir
