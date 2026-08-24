@@ -132,7 +132,15 @@ type ReleaseSpec struct {
 	// object before they are compared, so normalized-away fields never trigger a
 	// rollout. DiffPatches NEVER change what is rendered or applied to the cluster.
 	// +optional
-	DiffPatches []DiffPatch `json:"diffPatches,omitempty"`
+	DiffPatches []Patch `json:"diffPatches,omitempty"`
+
+	// RenderPatches are render-time jq rules applied to the resources rendered
+	// from the chart, right after rendering and before anything else sees them.
+	// Unlike DiffPatches, they DO change what is stored in the release and applied
+	// to the cluster, so they can add, edit or drop any field of any rendered
+	// resource. Rules run in order, each one on the output of the previous one.
+	// +optional
+	RenderPatches []Patch `json:"renderPatches,omitempty"`
 
 	// +optional
 	AppVersion string `json:"appVersion,omitempty"`
@@ -718,11 +726,11 @@ type InstallConfig struct {
 	// +optional
 	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
 
-	// NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files (from
-	// the top-level chart and subcharts) during drift detection. Rules declared in
-	// spec.diffPatches still apply.
+	// NoDefaultPatches, when true, ignores chart-shipped patches.yaml files (from
+	// the top-level chart and subcharts), both their render and their diff rules.
+	// Rules declared in spec.renderPatches and spec.diffPatches still apply.
 	// +optional
-	NoDefaultDiffPatches bool `json:"noDefaultDiffPatches,omitempty"`
+	NoDefaultPatches bool `json:"noDefaultPatches,omitempty"`
 
 	// +optional
 	TemplatesAllowDNS bool `json:"templatesAllowDNS,omitempty"`
@@ -746,10 +754,11 @@ type RollbackConfig struct {
 	// +optional
 	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
 
-	// NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files
-	// during the rollback plan. Rules from spec.diffPatches still apply.
+	// NoDefaultPatches, when true, ignores chart-shipped patches.yaml files during
+	// the rollback plan, both their render and their diff rules. Rules from
+	// spec.renderPatches and spec.diffPatches still apply.
 	// +optional
-	NoDefaultDiffPatches bool `json:"noDefaultDiffPatches,omitempty"`
+	NoDefaultPatches bool `json:"noDefaultPatches,omitempty"`
 }
 
 type UninstallConfig struct {
@@ -767,10 +776,11 @@ type UninstallConfig struct {
 	// +optional
 	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
 
-	// NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files
-	// during the uninstall plan. Rules from spec.diffPatches still apply.
+	// NoDefaultPatches, when true, ignores chart-shipped patches.yaml files during
+	// the uninstall plan, both their render and their diff rules. Rules from
+	// spec.renderPatches and spec.diffPatches still apply.
 	// +optional
-	NoDefaultDiffPatches bool `json:"noDefaultDiffPatches,omitempty"`
+	NoDefaultPatches bool `json:"noDefaultPatches,omitempty"`
 }
 
 type TrackingConfig struct {
@@ -917,12 +927,15 @@ func (r *Release) GetReleaseNamespace() string {
 	return r.Namespace
 }
 
-// DiffPatch is a diff-time normalization rule applied during drift detection.
-type DiffPatch struct {
+// Patch is a jq transform applied to every resource its matcher matches. The
+// point at which it is applied depends on the field it is declared in:
+// spec.diffPatches (drift detection only) or spec.renderPatches (the rendered
+// resources themselves).
+type Patch struct {
 	// Match chooses which resources this rule applies to. An empty matcher
 	// matches every resource of the release.
 	// +optional
-	Match DiffPatchMatcher `json:"match,omitempty"`
+	Match PatchMatcher `json:"match,omitempty"`
 
 	// Type is the transform kind. Only "jq" is supported; defaults to "jq".
 	// +kubebuilder:validation:Enum=jq
@@ -937,7 +950,7 @@ type DiffPatch struct {
 	Patch string `json:"patch"`
 }
 
-// DiffPatchMatcher matches a resource by its metadata. Fields AND together;
+// PatchMatcher matches a resource by its metadata. Fields AND together;
 // values within a list OR together; an empty field matches everything. String
 // list values use the /regex/ convention: a bare value is a literal exact match
 // (case-insensitive for groups/versions/kinds, case-sensitive for
@@ -950,7 +963,7 @@ type DiffPatch struct {
 // "myapp/charts/cache"), which disambiguates identically-named subcharts in
 // different locations; it uses chart ALIASES, not upstream chart names, and a
 // regexp value matches either form.
-type DiffPatchMatcher struct {
+type PatchMatcher struct {
 	// +optional
 	Kinds []string `json:"kinds,omitempty"`
 	// +optional
@@ -968,6 +981,14 @@ type DiffPatchMatcher struct {
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
+
+// DiffPatch is a deprecated alias of Patch, kept so that Go importers of this
+// package keep compiling. Use Patch instead.
+type DiffPatch = Patch
+
+// DiffPatchMatcher is a deprecated alias of PatchMatcher, kept so that Go
+// importers of this package keep compiling. Use PatchMatcher instead.
+type DiffPatchMatcher = PatchMatcher
 
 func init() {
 	SchemeBuilder.Register(&Release{}, &ReleaseList{})

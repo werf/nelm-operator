@@ -906,8 +906,11 @@ spec:
                   object before they are compared, so normalized-away fields never trigger a
                   rollout. DiffPatches NEVER change what is rendered or applied to the cluster.
                 items:
-                  description: DiffPatch is a diff-time normalization rule applied
-                    during drift detection.
+                  description: |-
+                    Patch is a jq transform applied to every resource its matcher matches. The
+                    point at which it is applied depends on the field it is declared in:
+                    spec.diffPatches (drift detection only) or spec.renderPatches (the rendered
+                    resources themselves).
                   properties:
                     match:
                       description: |-
@@ -983,11 +986,11 @@ spec:
                     - Foreground
                     - Orphan
                     type: string
-                  noDefaultDiffPatches:
+                  noDefaultPatches:
                     description: |-
-                      NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files (from
-                      the top-level chart and subcharts) during drift detection. Rules declared in
-                      spec.diffPatches still apply.
+                      NoDefaultPatches, when true, ignores chart-shipped patches.yaml files (from
+                      the top-level chart and subcharts), both their render and their diff rules.
+                      Rules declared in spec.renderPatches and spec.diffPatches still apply.
                     type: boolean
                   noForceAdoption:
                     type: boolean
@@ -1052,6 +1055,75 @@ spec:
                     default: 10
                     type: integer
                 type: object
+              renderPatches:
+                description: |-
+                  RenderPatches are render-time jq rules applied to the resources rendered
+                  from the chart, right after rendering and before anything else sees them.
+                  Unlike DiffPatches, they DO change what is stored in the release and applied
+                  to the cluster, so they can add, edit or drop any field of any rendered
+                  resource. Rules run in order, each one on the output of the previous one.
+                items:
+                  description: |-
+                    Patch is a jq transform applied to every resource its matcher matches. The
+                    point at which it is applied depends on the field it is declared in:
+                    spec.diffPatches (drift detection only) or spec.renderPatches (the rendered
+                    resources themselves).
+                  properties:
+                    match:
+                      description: |-
+                        Match chooses which resources this rule applies to. An empty matcher
+                        matches every resource of the release.
+                      properties:
+                        annotations:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        charts:
+                          items:
+                            type: string
+                          type: array
+                        groups:
+                          items:
+                            type: string
+                          type: array
+                        kinds:
+                          items:
+                            type: string
+                          type: array
+                        labels:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        names:
+                          items:
+                            type: string
+                          type: array
+                        namespaces:
+                          items:
+                            type: string
+                          type: array
+                        versions:
+                          items:
+                            type: string
+                          type: array
+                      type: object
+                    patch:
+                      description: |-
+                        Patch is the jq program run against the whole raw resource object. It must
+                        return exactly one object; anything else fails the plan (fail closed).
+                      minLength: 1
+                      type: string
+                    type:
+                      default: jq
+                      description: Type is the transform kind. Only "jq" is supported;
+                        defaults to "jq".
+                      enum:
+                      - jq
+                      type: string
+                  required:
+                  - patch
+                  type: object
+                type: array
               rollback:
                 properties:
                   deletePropagation:
@@ -1061,10 +1133,11 @@ spec:
                     - Foreground
                     - Orphan
                     type: string
-                  noDefaultDiffPatches:
+                  noDefaultPatches:
                     description: |-
-                      NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files
-                      during the rollback plan. Rules from spec.diffPatches still apply.
+                      NoDefaultPatches, when true, ignores chart-shipped patches.yaml files during
+                      the rollback plan, both their render and their diff rules. Rules from
+                      spec.renderPatches and spec.diffPatches still apply.
                     type: boolean
                   noForceAdoption:
                     type: boolean
@@ -1168,10 +1241,11 @@ spec:
                     - Foreground
                     - Orphan
                     type: string
-                  noDefaultDiffPatches:
+                  noDefaultPatches:
                     description: |-
-                      NoDefaultDiffPatches, when true, ignores chart-shipped patches.yaml files
-                      during the uninstall plan. Rules from spec.diffPatches still apply.
+                      NoDefaultPatches, when true, ignores chart-shipped patches.yaml files during
+                      the uninstall plan, both their render and their diff rules. Rules from
+                      spec.renderPatches and spec.diffPatches still apply.
                     type: boolean
                   noRemoveManualChanges:
                     type: boolean

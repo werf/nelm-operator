@@ -859,11 +859,11 @@ func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release, tempD
 		ForceAdoption:               true,
 	}
 
-	patchesFiles, err := diffPatchesFiles(rel.Spec.DiffPatches, tempDir)
+	files, err := patchesFiles(rel, tempDir)
 	if err != nil {
 		return common.ReleaseInstallRuntimeOptions{}, err
 	}
-	opts.PatchesFiles = patchesFiles
+	opts.PatchesFiles = files
 
 	if rel.Spec.ReleaseStorage != nil {
 		opts.ReleaseHistoryLimit = rel.Spec.ReleaseStorage.HistoryLimit
@@ -875,16 +875,16 @@ func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release, tempD
 		opts.DefaultDeletePropagation = install.DeletePropagation
 		opts.ForceAdoption = !install.NoForceAdoption
 		opts.NoRemoveManualChanges = install.NoRemoveManualChanges
-		opts.DefaultPatchesDisable = install.NoDefaultDiffPatches
+		opts.DefaultPatchesDisable = install.NoDefaultPatches
 	}
 
 	return opts, nil
 }
 
-func diffPatchesFiles(patches []nelmv1alpha1.DiffPatch, tempDir string) ([]string, error) {
-	patchesFile, err := writeDiffPatchesFile(patches, tempDir)
+func patchesFiles(rel *nelmv1alpha1.Release, tempDir string) ([]string, error) {
+	patchesFile, err := writePatchesFile(rel.Spec.RenderPatches, rel.Spec.DiffPatches, tempDir)
 	if err != nil {
-		return nil, fmt.Errorf("write diff patches file: %w", err)
+		return nil, fmt.Errorf("write patches file: %w", err)
 	}
 	if patchesFile == "" {
 		return nil, nil
@@ -893,27 +893,14 @@ func diffPatchesFiles(patches []nelmv1alpha1.DiffPatch, tempDir string) ([]strin
 	return []string{patchesFile}, nil
 }
 
-func writeDiffPatchesFile(patches []nelmv1alpha1.DiffPatch, tempDir string) (string, error) {
-	if len(patches) == 0 {
+func writePatchesFile(renderPatches, diffPatches []nelmv1alpha1.Patch, tempDir string) (string, error) {
+	if len(renderPatches) == 0 && len(diffPatches) == 0 {
 		return "", nil
 	}
 
-	file := spec.PatchesFile{DiffPatches: make([]spec.DiffPatch, 0, len(patches))}
-	for _, p := range patches {
-		file.DiffPatches = append(file.DiffPatches, spec.DiffPatch{
-			Match: spec.ResourceMatcher{
-				Kinds:       p.Match.Kinds,
-				Names:       p.Match.Names,
-				Namespaces:  p.Match.Namespaces,
-				Groups:      p.Match.Groups,
-				Versions:    p.Match.Versions,
-				Charts:      p.Match.Charts,
-				Labels:      p.Match.Labels,
-				Annotations: p.Match.Annotations,
-			},
-			Type:  spec.DiffPatchType(p.Type),
-			Patch: p.Patch,
-		})
+	file := spec.PatchesFile{
+		RenderPatches: specPatches(renderPatches),
+		DiffPatches:   specPatches(diffPatches),
 	}
 
 	data, err := yaml.Marshal(file)
@@ -921,7 +908,7 @@ func writeDiffPatchesFile(patches []nelmv1alpha1.DiffPatch, tempDir string) (str
 		return "", fmt.Errorf("marshal patches: %w", err)
 	}
 
-	f, err := os.CreateTemp(tempDir, "diff-patches-*.yaml")
+	f, err := os.CreateTemp(tempDir, "patches-*.yaml")
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
@@ -932,6 +919,32 @@ func writeDiffPatchesFile(patches []nelmv1alpha1.DiffPatch, tempDir string) (str
 	}
 
 	return f.Name(), nil
+}
+
+func specPatches(patches []nelmv1alpha1.Patch) []spec.Patch {
+	if len(patches) == 0 {
+		return nil
+	}
+
+	result := make([]spec.Patch, 0, len(patches))
+	for _, p := range patches {
+		result = append(result, spec.Patch{
+			Match: spec.ResourceMatcher{
+				Kinds:       p.Match.Kinds,
+				Names:       p.Match.Names,
+				Namespaces:  p.Match.Namespaces,
+				Groups:      p.Match.Groups,
+				Versions:    p.Match.Versions,
+				Charts:      p.Match.Charts,
+				Labels:      p.Match.Labels,
+				Annotations: p.Match.Annotations,
+			},
+			Type:  spec.PatchType(p.Type),
+			Patch: p.Patch,
+		})
+	}
+
+	return result
 }
 
 // ownershipLabels returns a fresh label map carrying the user-supplied release
@@ -1018,13 +1031,13 @@ func (r *ReleaseReconciler) buildInstallOptions(rel *nelmv1alpha1.Release, chart
 }
 
 func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, tempDir string) (action.ReleaseRollbackOptions, error) {
-	patchesFiles, err := diffPatchesFiles(rel.Spec.DiffPatches, tempDir)
+	files, err := patchesFiles(rel, tempDir)
 	if err != nil {
 		return action.ReleaseRollbackOptions{}, err
 	}
 
 	opts := action.ReleaseRollbackOptions{
-		PatchesFiles:                patchesFiles,
+		PatchesFiles:                files,
 		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
 		ResourceValidationOptions:   r.buildValidationOptions(rel),
 		TrackingOptions:             r.buildTrackingOptions(rel),
@@ -1050,20 +1063,20 @@ func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, temp
 		opts.DefaultDeletePropagation = rb.DeletePropagation
 		opts.ForceAdoption = !rb.NoForceAdoption
 		opts.NoRemoveManualChanges = rb.NoRemoveManualChanges
-		opts.DefaultPatchesDisable = rb.NoDefaultDiffPatches
+		opts.DefaultPatchesDisable = rb.NoDefaultPatches
 	}
 
 	return opts, nil
 }
 
 func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tempDir string) (action.ReleaseUninstallOptions, error) {
-	patchesFiles, err := diffPatchesFiles(rel.Spec.DiffPatches, tempDir)
+	files, err := patchesFiles(rel, tempDir)
 	if err != nil {
 		return action.ReleaseUninstallOptions{}, err
 	}
 
 	opts := action.ReleaseUninstallOptions{
-		PatchesFiles:                patchesFiles,
+		PatchesFiles:                files,
 		KubeConnectionOptions:       r.buildKubeConnectionOptions(rel),
 		TrackingOptions:             r.buildTrackingOptions(rel),
 		ReleaseStorageDriver:        r.Config.ReleaseStorageDriver,
@@ -1082,7 +1095,7 @@ func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tem
 		opts.DeleteReleaseNamespace = un.DeleteNamespace
 		opts.DefaultDeletePropagation = un.DeletePropagation
 		opts.NoRemoveManualChanges = un.NoRemoveManualChanges
-		opts.DefaultPatchesDisable = un.NoDefaultDiffPatches
+		opts.DefaultPatchesDisable = un.NoDefaultPatches
 	}
 
 	return opts, nil
