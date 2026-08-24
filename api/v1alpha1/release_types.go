@@ -135,10 +135,10 @@ type ReleaseSpec struct {
 	DiffPatches []Patch `json:"diffPatches,omitempty"`
 
 	// RenderPatches are render-time jq rules applied to the resources rendered
-	// from the chart, right after rendering and before anything else sees them.
-	// Unlike DiffPatches, they DO change what is stored in the release and applied
-	// to the cluster, so they can add, edit or drop any field of any rendered
-	// resource. Rules run in order, each one on the output of the previous one.
+	// from the chart, right after rendering. Unlike DiffPatches, they DO change
+	// what is stored in the release and applied to the cluster, so they can add,
+	// edit or drop any field of any rendered resource. Rules run in order, each
+	// one on the output of the previous one.
 	// +optional
 	RenderPatches []Patch `json:"renderPatches,omitempty"`
 

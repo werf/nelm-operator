@@ -140,9 +140,9 @@ spec:
   appVersion: "2.1.0"              # override chart's appVersion
 
   # --- Render patches (change what is deployed) ---
-  # renderPatches are applied to the resources rendered from the chart, before
-  # anything else sees them, so they DO change what is stored in the release and
-  # applied to the cluster. Rules run in order, each on the previous one's output.
+  # renderPatches are applied to the resources rendered from the chart, right
+  # after rendering, so they DO change what is stored in the release and applied
+  # to the cluster. Rules run in order, each on the previous one's output.
   renderPatches:
   - match:
       kinds: [Deployment]           # bare value = exact match
