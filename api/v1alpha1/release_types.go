@@ -984,14 +984,6 @@ type PatchMatcher struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-// DiffPatch is a deprecated alias of Patch, kept so that Go importers of this
-// package keep compiling. Use Patch instead.
-type DiffPatch = Patch
-
-// DiffPatchMatcher is a deprecated alias of PatchMatcher, kept so that Go
-// importers of this package keep compiling. Use PatchMatcher instead.
-type DiffPatchMatcher = PatchMatcher
-
 func init() {
 	SchemeBuilder.Register(&Release{}, &ReleaseList{})
 }
