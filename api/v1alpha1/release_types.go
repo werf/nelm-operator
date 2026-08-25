@@ -754,9 +754,10 @@ type RollbackConfig struct {
 	// +optional
 	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
 
-	// NoDefaultPatches, when true, ignores chart-shipped patches.yaml files during
-	// the rollback plan, both their render and their diff rules. Rules from
-	// spec.renderPatches and spec.diffPatches still apply.
+	// NoDefaultPatches, when true, ignores chart-shipped patches.yaml files (from
+	// the top-level chart and subcharts) during the rollback plan. Rules from
+	// spec.diffPatches still apply. Only diff rules matter here: the rollback plan
+	// never applies render rules, neither chart-shipped nor from spec.renderPatches.
 	// +optional
 	NoDefaultPatches bool `json:"noDefaultPatches,omitempty"`
 }
@@ -776,9 +777,10 @@ type UninstallConfig struct {
 	// +optional
 	NoRemoveManualChanges bool `json:"noRemoveManualChanges,omitempty"`
 
-	// NoDefaultPatches, when true, ignores chart-shipped patches.yaml files during
-	// the uninstall plan, both their render and their diff rules. Rules from
-	// spec.renderPatches and spec.diffPatches still apply.
+	// NoDefaultPatches, when true, ignores chart-shipped patches.yaml files (from
+	// the top-level chart and subcharts) during the uninstall plan. Rules from
+	// spec.diffPatches still apply. Only diff rules matter here: the uninstall plan
+	// never applies render rules, neither chart-shipped nor from spec.renderPatches.
 	// +optional
 	NoDefaultPatches bool `json:"noDefaultPatches,omitempty"`
 }
