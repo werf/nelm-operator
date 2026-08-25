@@ -859,7 +859,7 @@ func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release, tempD
 		ForceAdoption:               true,
 	}
 
-	files, err := patchesFiles(rel, tempDir)
+	files, err := patchesFiles(rel.Spec.RenderPatches, rel.Spec.DiffPatches, tempDir)
 	if err != nil {
 		return common.ReleaseInstallRuntimeOptions{}, err
 	}
@@ -881,8 +881,8 @@ func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release, tempD
 	return opts, nil
 }
 
-func patchesFiles(rel *nelmv1alpha1.Release, tempDir string) ([]string, error) {
-	patchesFile, err := writePatchesFile(rel.Spec.RenderPatches, rel.Spec.DiffPatches, tempDir)
+func patchesFiles(renderPatches, diffPatches []nelmv1alpha1.Patch, tempDir string) ([]string, error) {
+	patchesFile, err := writePatchesFile(renderPatches, diffPatches, tempDir)
 	if err != nil {
 		return nil, fmt.Errorf("write patches file: %w", err)
 	}
@@ -1031,7 +1031,7 @@ func (r *ReleaseReconciler) buildInstallOptions(rel *nelmv1alpha1.Release, chart
 }
 
 func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, tempDir string) (action.ReleaseRollbackOptions, error) {
-	files, err := patchesFiles(rel, tempDir)
+	files, err := patchesFiles(nil, rel.Spec.DiffPatches, tempDir)
 	if err != nil {
 		return action.ReleaseRollbackOptions{}, err
 	}
@@ -1070,7 +1070,7 @@ func (r *ReleaseReconciler) buildRollbackOptions(rel *nelmv1alpha1.Release, temp
 }
 
 func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tempDir string) (action.ReleaseUninstallOptions, error) {
-	files, err := patchesFiles(rel, tempDir)
+	files, err := patchesFiles(nil, rel.Spec.DiffPatches, tempDir)
 	if err != nil {
 		return action.ReleaseUninstallOptions{}, err
 	}

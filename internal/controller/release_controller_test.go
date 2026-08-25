@@ -265,7 +265,7 @@ var _ = Describe("buildRollbackOptions", func() {
 		Expect(opts.ForceAdoption).To(BeTrue())
 	})
 
-	It("maps spec.renderPatches and spec.diffPatches into a patches file", func() {
+	It("maps only spec.diffPatches into a patches file", func() {
 		r := &ReleaseReconciler{}
 		rel := &nelmv1alpha1.Release{
 			Spec: nelmv1alpha1.ReleaseSpec{
@@ -279,8 +279,20 @@ var _ = Describe("buildRollbackOptions", func() {
 
 		parsed, err := spec.LoadPatchesFiles(opts.PatchesFiles)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(parsed.Render).To(HaveLen(1))
+		Expect(parsed.Render).To(BeEmpty())
 		Expect(parsed.Diff).To(HaveLen(1))
+	})
+
+	It("writes no patches file when only spec.renderPatches is set", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				RenderPatches: []nelmv1alpha1.Patch{{Patch: ".spec.replicas = 3"}},
+			},
+		}
+		opts, err := r.buildRollbackOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.PatchesFiles).To(BeEmpty())
 	})
 
 	It("maps rollback.noDefaultPatches to DefaultPatchesDisable", func() {
@@ -297,7 +309,7 @@ var _ = Describe("buildRollbackOptions", func() {
 })
 
 var _ = Describe("buildUninstallOptions", func() {
-	It("maps spec.renderPatches and spec.diffPatches into a patches file", func() {
+	It("maps only spec.diffPatches into a patches file", func() {
 		r := &ReleaseReconciler{}
 		rel := &nelmv1alpha1.Release{
 			Spec: nelmv1alpha1.ReleaseSpec{
@@ -311,8 +323,20 @@ var _ = Describe("buildUninstallOptions", func() {
 
 		parsed, err := spec.LoadPatchesFiles(opts.PatchesFiles)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(parsed.Render).To(HaveLen(1))
+		Expect(parsed.Render).To(BeEmpty())
 		Expect(parsed.Diff).To(HaveLen(1))
+	})
+
+	It("writes no patches file when only spec.renderPatches is set", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				RenderPatches: []nelmv1alpha1.Patch{{Patch: ".spec.replicas = 3"}},
+			},
+		}
+		opts, err := r.buildUninstallOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.PatchesFiles).To(BeEmpty())
 	})
 
 	It("maps uninstall.noDefaultPatches to DefaultPatchesDisable", func() {
