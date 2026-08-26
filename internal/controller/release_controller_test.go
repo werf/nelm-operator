@@ -138,9 +138,9 @@ var _ = Describe("buildRuntimeOptions", func() {
 		r := &ReleaseReconciler{}
 		rel := &nelmv1alpha1.Release{
 			Spec: nelmv1alpha1.ReleaseSpec{
-				DiffPatches: []nelmv1alpha1.DiffPatch{
+				DiffPatches: []nelmv1alpha1.Patch{
 					{
-						Match: nelmv1alpha1.DiffPatchMatcher{
+						Match: nelmv1alpha1.PatchMatcher{
 							Kinds:  []string{"Deployment"},
 							Charts: []string{"cache"},
 							Labels: map[string]string{"tier": "backend"},
@@ -158,26 +158,95 @@ var _ = Describe("buildRuntimeOptions", func() {
 
 		parsed, err := spec.LoadPatchesFiles(opts.PatchesFiles)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(parsed).To(HaveLen(1))
-		Expect(parsed[0].Type).To(Equal(spec.DiffPatchTypeJQ))
-		Expect(parsed[0].Patch).To(Equal("del(.spec.replicas)"))
-		Expect(parsed[0].Match.Kinds).To(Equal([]string{"Deployment"}))
-		Expect(parsed[0].Match.Charts).To(Equal([]string{"cache"}))
-		Expect(parsed[0].Match.Labels).To(HaveKeyWithValue("tier", "backend"))
+		Expect(parsed.Render).To(BeEmpty())
+		Expect(parsed.Diff).To(HaveLen(1))
+		Expect(parsed.Diff[0].Type).To(Equal(spec.PatchTypeJQ))
+		Expect(parsed.Diff[0].Patch).To(Equal("del(.spec.replicas)"))
+		Expect(parsed.Diff[0].Match.Kinds).To(Equal([]string{"Deployment"}))
+		Expect(parsed.Diff[0].Match.Charts).To(Equal([]string{"cache"}))
+		Expect(parsed.Diff[0].Match.Labels).To(HaveKeyWithValue("tier", "backend"))
 	})
 
-	It("sets no patches files when spec.diffPatches is empty", func() {
+	It("maps spec.renderPatches into the same patches file passed to nelm", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				RenderPatches: []nelmv1alpha1.Patch{
+					{
+						Match: nelmv1alpha1.PatchMatcher{
+							Kinds:      []string{"Deployment"},
+							Names:      []string{"web"},
+							Namespaces: []string{"prod"},
+							Groups:     []string{"apps"},
+							Versions:   []string{"v1"},
+							Charts:     []string{"cache"},
+							Labels:     map[string]string{"tier": "backend"},
+							Annotations: map[string]string{
+								"nelm.werf.io/patched": "true",
+							},
+						},
+						Type:  "jq",
+						Patch: ".spec.replicas = 3",
+					},
+				},
+				DiffPatches: []nelmv1alpha1.Patch{{Patch: "del(.spec.replicas)"}},
+			},
+		}
+
+		opts, err := r.buildRuntimeOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.PatchesFiles).To(HaveLen(1))
+
+		parsed, err := spec.LoadPatchesFiles(opts.PatchesFiles)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(parsed.Render).To(HaveLen(1))
+		Expect(parsed.Render[0].Type).To(Equal(spec.PatchTypeJQ))
+		Expect(parsed.Render[0].Patch).To(Equal(".spec.replicas = 3"))
+		Expect(parsed.Render[0].Match.Kinds).To(Equal([]string{"Deployment"}))
+		Expect(parsed.Render[0].Match.Names).To(Equal([]string{"web"}))
+		Expect(parsed.Render[0].Match.Namespaces).To(Equal([]string{"prod"}))
+		Expect(parsed.Render[0].Match.Groups).To(Equal([]string{"apps"}))
+		Expect(parsed.Render[0].Match.Versions).To(Equal([]string{"v1"}))
+		Expect(parsed.Render[0].Match.Charts).To(Equal([]string{"cache"}))
+		Expect(parsed.Render[0].Match.Labels).To(HaveKeyWithValue("tier", "backend"))
+		Expect(parsed.Render[0].Match.Annotations).To(HaveKeyWithValue("nelm.werf.io/patched", "true"))
+		Expect(parsed.Diff).To(HaveLen(1))
+		Expect(parsed.Diff[0].Patch).To(Equal("del(.spec.replicas)"))
+	})
+
+	It("preserves the declared order of render patches", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				RenderPatches: []nelmv1alpha1.Patch{
+					{Patch: ".spec.replicas = 1"},
+					{Patch: ".spec.replicas += 1"},
+				},
+			},
+		}
+
+		opts, err := r.buildRuntimeOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+
+		parsed, err := spec.LoadPatchesFiles(opts.PatchesFiles)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(parsed.Render).To(HaveLen(2))
+		Expect(parsed.Render[0].Patch).To(Equal(".spec.replicas = 1"))
+		Expect(parsed.Render[1].Patch).To(Equal(".spec.replicas += 1"))
+	})
+
+	It("sets no patches files when neither renderPatches nor diffPatches is set", func() {
 		r := &ReleaseReconciler{}
 		opts, err := r.buildRuntimeOptions(&nelmv1alpha1.Release{}, GinkgoT().TempDir())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(opts.PatchesFiles).To(BeEmpty())
 	})
 
-	It("maps install.noDefaultDiffPatches to DefaultPatchesDisable", func() {
+	It("maps install.noDefaultPatches to DefaultPatchesDisable", func() {
 		r := &ReleaseReconciler{}
 		rel := &nelmv1alpha1.Release{
 			Spec: nelmv1alpha1.ReleaseSpec{
-				Install: &nelmv1alpha1.InstallConfig{NoDefaultDiffPatches: true},
+				Install: &nelmv1alpha1.InstallConfig{NoDefaultPatches: true},
 			},
 		}
 		opts, err := r.buildRuntimeOptions(rel, GinkgoT().TempDir())
@@ -196,30 +265,90 @@ var _ = Describe("buildRollbackOptions", func() {
 		Expect(opts.ForceAdoption).To(BeTrue())
 	})
 
-	It("maps spec.diffPatches into a patches file", func() {
+	It("maps only spec.diffPatches into a patches file", func() {
 		r := &ReleaseReconciler{}
 		rel := &nelmv1alpha1.Release{
 			Spec: nelmv1alpha1.ReleaseSpec{
-				DiffPatches: []nelmv1alpha1.DiffPatch{{Patch: "del(.spec.replicas)"}},
+				RenderPatches: []nelmv1alpha1.Patch{{Patch: ".spec.replicas = 3"}},
+				DiffPatches:   []nelmv1alpha1.Patch{{Patch: "del(.spec.replicas)"}},
 			},
 		}
 		opts, err := r.buildRollbackOptions(rel, GinkgoT().TempDir())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(opts.PatchesFiles).To(HaveLen(1))
+
+		parsed, err := spec.LoadPatchesFiles(opts.PatchesFiles)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(parsed.Render).To(BeEmpty())
+		Expect(parsed.Diff).To(HaveLen(1))
+	})
+
+	It("writes no patches file when only spec.renderPatches is set", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				RenderPatches: []nelmv1alpha1.Patch{{Patch: ".spec.replicas = 3"}},
+			},
+		}
+		opts, err := r.buildRollbackOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.PatchesFiles).To(BeEmpty())
+	})
+
+	It("maps rollback.noDefaultPatches to DefaultPatchesDisable", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				Rollback: &nelmv1alpha1.RollbackConfig{NoDefaultPatches: true},
+			},
+		}
+		opts, err := r.buildRollbackOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.DefaultPatchesDisable).To(BeTrue())
 	})
 })
 
 var _ = Describe("buildUninstallOptions", func() {
-	It("maps spec.diffPatches into a patches file", func() {
+	It("maps only spec.diffPatches into a patches file", func() {
 		r := &ReleaseReconciler{}
 		rel := &nelmv1alpha1.Release{
 			Spec: nelmv1alpha1.ReleaseSpec{
-				DiffPatches: []nelmv1alpha1.DiffPatch{{Patch: "del(.spec.replicas)"}},
+				RenderPatches: []nelmv1alpha1.Patch{{Patch: ".spec.replicas = 3"}},
+				DiffPatches:   []nelmv1alpha1.Patch{{Patch: "del(.spec.replicas)"}},
 			},
 		}
 		opts, err := r.buildUninstallOptions(rel, GinkgoT().TempDir())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(opts.PatchesFiles).To(HaveLen(1))
+
+		parsed, err := spec.LoadPatchesFiles(opts.PatchesFiles)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(parsed.Render).To(BeEmpty())
+		Expect(parsed.Diff).To(HaveLen(1))
+	})
+
+	It("writes no patches file when only spec.renderPatches is set", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				RenderPatches: []nelmv1alpha1.Patch{{Patch: ".spec.replicas = 3"}},
+			},
+		}
+		opts, err := r.buildUninstallOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.PatchesFiles).To(BeEmpty())
+	})
+
+	It("maps uninstall.noDefaultPatches to DefaultPatchesDisable", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			Spec: nelmv1alpha1.ReleaseSpec{
+				Uninstall: &nelmv1alpha1.UninstallConfig{NoDefaultPatches: true},
+			},
+		}
+		opts, err := r.buildUninstallOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.DefaultPatchesDisable).To(BeTrue())
 	})
 })
 

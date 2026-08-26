@@ -105,7 +105,7 @@ spec:
     deletePropagation: Background   # Background | Foreground | Orphan
     noForceAdoption: false          # disable adopting existing resources (default: false)
     noRemoveManualChanges: false    # preserve manual changes to managed resources (default: false)
-    noDefaultDiffPatches: false       # ignore chart-shipped patches.yaml (spec.diffPatches still apply)
+    noDefaultPatches: false         # ignore chart-shipped patches.yaml (spec.renderPatches/spec.diffPatches still apply)
     templatesAllowDNS: false        # allow DNS lookups in chart templates
 
   # --- Rollback configuration ---
@@ -114,7 +114,7 @@ spec:
     deletePropagation: Background
     noForceAdoption: false
     noRemoveManualChanges: false
-    noDefaultDiffPatches: false       # ignore chart-shipped patches.yaml during rollback
+    noDefaultPatches: false         # ignore chart-shipped patches.yaml during rollback
 
   # --- Uninstall configuration ---
   uninstall:
@@ -122,7 +122,7 @@ spec:
     deleteNamespace: false          # delete the target namespace on uninstall
     deletePropagation: Background
     noRemoveManualChanges: false
-    noDefaultDiffPatches: false       # ignore chart-shipped patches.yaml during uninstall
+    noDefaultPatches: false         # ignore chart-shipped patches.yaml during uninstall
 
   # --- Resource labels and annotations ---
   extraAnnotations:                 # added to all deployed resources
@@ -138,6 +138,18 @@ spec:
   releaseLabels:                    # added to the Helm release secret
     managed-by: nelm-operator
   appVersion: "2.1.0"              # override chart's appVersion
+
+  # --- Render patches (change what is deployed) ---
+  # renderPatches are applied to the resources rendered from the chart, right
+  # after rendering, so they DO change what is stored in the release and applied
+  # to the cluster. Rules run in order, each on the previous one's output.
+  renderPatches:
+  - match:
+      kinds: [Deployment]           # bare value = exact match
+      names: ["/web-.*/"]           # /regex/ = anchored full-match regexp
+    type: jq                        # only "jq" is supported (default)
+    patch: |                        # jq sees raw K8s JSON, must return one object
+      .spec.template.spec.priorityClassName = "production-high"
 
   # --- Diff patches (drift-detection only) ---
   # diffPatches ONLY affect drift detection during self-healing reconciliation:
