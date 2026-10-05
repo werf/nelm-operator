@@ -29,11 +29,11 @@ import (
 
 	"github.com/werf/logboek"
 
-	"github.com/werf/nelm/pkg/action"
-	"github.com/werf/nelm/pkg/common"
-	"github.com/werf/nelm/pkg/kube"
-	"github.com/werf/nelm/pkg/release"
-	"github.com/werf/nelm/pkg/resource/spec"
+	"github.com/werf/nelm/v2/pkg/action"
+	"github.com/werf/nelm/v2/pkg/common"
+	"github.com/werf/nelm/v2/pkg/kube"
+	"github.com/werf/nelm/v2/pkg/release"
+	"github.com/werf/nelm/v2/pkg/resource/spec"
 
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
@@ -453,7 +453,7 @@ func (r *ReleaseReconciler) reconcileInstall(ctx context.Context, rel *nelmv1alp
 	installOpts.LegacyPlanArtifact = planArtifact
 	installOpts.PlanArtifactLifetime = 10 * time.Minute
 
-	if err := action.ReleaseInstall(ctx, releaseName, releaseNamespace, installOpts); err != nil {
+	if _, err := action.ReleaseInstall(ctx, releaseName, releaseNamespace, installOpts); err != nil {
 		return r.handleFailure(ctx, rel, true, fmt.Errorf("install release: %w", err), nil, true)
 	}
 

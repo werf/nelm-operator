@@ -26,9 +26,9 @@ import (
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 	"github.com/werf/nelm-operator/internal/config"
 	"github.com/werf/nelm-operator/internal/controller"
-	"github.com/werf/nelm/pkg/action"
-	"github.com/werf/nelm/pkg/featgate"
-	"github.com/werf/nelm/pkg/log"
+	"github.com/werf/nelm/v2/pkg/action"
+	"github.com/werf/nelm/v2/pkg/featgate"
+	"github.com/werf/nelm/v2/pkg/log"
 )
 
 var (

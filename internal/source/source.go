@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
-	"github.com/werf/nelm/pkg/util"
+	"github.com/werf/nelm/v2/pkg/util"
 )
 
 // ChartResult is the outcome of resolving a chart source: a local path to the
