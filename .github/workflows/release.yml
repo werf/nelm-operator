@@ -19,9 +19,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  HELM_VERSION: v3.22.0
+  NELM_VERSION: 2.0.0-alpha.2
   IMAGE_READ_REPO: registry.werf.io/nelm-operator/nelm-controller
   IMAGE_WRITE_REPO: registry-write.werf.io/nelm-operator/nelm-controller
+  CHARTS_WRITE_REGISTRY: registry-write.werf.io
   CHARTS_WRITE_REPO: oci://registry-write.werf.io/charts/nelm-operator
 
 jobs:
@@ -95,17 +96,23 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Setup Helm
+      - name: Setup Nelm
         run: |
-          curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp
-          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
-          helm version --short
+          set -euo pipefail
+          curl -fsSL -o /tmp/nelm \
+            "https://tuf.nelm.sh/targets/releases/${NELM_VERSION}/linux-amd64/bin/nelm"
+          chmod +x /tmp/nelm
+          sudo mv /tmp/nelm /usr/local/bin/nelm
+          nelm version
 
+      # release-please already recorded the released version in the charts, but
+      # a tag cut by hand has not been through it.
       - name: Stamp chart versions
         env:
           CHART_VERSION: ${{ steps.version.outputs.chart }}
           IMAGE_TAG: ${{ steps.version.outputs.tag }}
         run: |
+          set -euo pipefail
           for chart in nelm-controller flux-source-controller nelm-operator; do
             sed -i "s/^version: .*/version: ${CHART_VERSION}/" "charts/${chart}/Chart.yaml"
           done
@@ -113,16 +120,25 @@ jobs:
             sed -i "s/^appVersion: .*/appVersion: ${IMAGE_TAG}/" "charts/${chart}/Chart.yaml"
           done
           sed -i "s/^    version: .*/    version: ${CHART_VERSION}/" charts/nelm-operator/Chart.yaml
-          helm dependency update charts/nelm-operator
+          nelm chart dependency update charts/nelm-operator
 
       - name: Publish charts
+        env:
+          NELM_USERNAME: ${{ secrets.WERF_REGISTRY_USERNAME }}
+          NELM_PASSWORD: ${{ secrets.WERF_REGISTRY_PASSWORD }}
         run: |
+          set -euo pipefail
+          # nelm keeps its own registry credentials, so the earlier docker login
+          # does not cover the upload.
+          nelm chart repo login "${CHARTS_WRITE_REGISTRY}" \
+            --username "$NELM_USERNAME" --password-stdin <<<"$NELM_PASSWORD"
+
           mkdir -p dist/charts
           for chart in nelm-controller flux-source-controller nelm-operator; do
-            helm package "charts/${chart}" --destination dist/charts
+            nelm chart pack "charts/${chart}" --destination dist/charts
           done
           for package in dist/charts/*.tgz; do
-            helm push "$package" "${CHARTS_WRITE_REPO}"
+            nelm chart upload "$package" "${CHARTS_WRITE_REPO}"
           done
 
       - name: Build installer
