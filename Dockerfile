@@ -1,6 +1,7 @@
 ARG DENO_VERSION=2.9.4
 
-FROM golang:1.25 AS builder
+# Cross-compile from the build platform instead of emulating the target one.
+FROM --platform=$BUILDPLATFORM golang:1.25 AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
