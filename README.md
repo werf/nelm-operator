@@ -14,8 +14,8 @@ proper CRD management, built-in secrets, resource ordering and lifecycle
 annotations, live log and event streaming, real readiness tracking, and several
 hundred fixed Helm bugs. This operator brings that engine to a GitOps-style
 reconciliation loop: you declare a `Release`, and the operator installs it,
-keeps it matching the declared state, rolls it back when an install fails, and
-uninstalls it when the resource is deleted.
+keeps it matching the declared state, retries and optionally rolls back a failed
+install, and uninstalls it when the resource is deleted.
 
 Charts are fetched by the [Flux source-controller](https://fluxcd.io/flux/components/source/),
 so a chart can come from a Helm repository, an OCI registry, a Git repository or
@@ -27,8 +27,13 @@ source-controller you have.
 ```sh
 helm install nelm-operator oci://registry.werf.io/charts/nelm-operator/nelm-operator \
   --namespace nelm-operator --create-namespace \
+  --devel \
   --set installFluxSourceController=true
 ```
+
+`--devel` is required while the only published versions are prereleases: without
+it Helm resolves to the newest stable chart, which is an abandoned `0.0.1`. Pin a
+specific one with `--version 1.0.0-alpha.1` instead, once you have picked it.
 
 `installFluxSourceController` is off by default, because a cluster that already
 runs Flux must not get a second source-controller. Turn it on for a cluster that
@@ -36,15 +41,16 @@ has no Flux, as above. If you do run Flux, install the controller alone instead:
 
 ```sh
 helm install nelm-operator oci://registry.werf.io/charts/nelm-operator/nelm-controller \
-  --namespace nelm-operator --create-namespace
+  --namespace nelm-operator --create-namespace --devel
 ```
 
-There is also a plain manifest bundle attached to every
-[release](https://github.com/werf/nelm-operator/releases), if you would rather
-not use Helm:
+A plain manifest bundle is attached to every
+[release](https://github.com/werf/nelm-operator/releases) if you would rather not
+use Helm. It carries the operator alone, so the cluster needs a Flux
+source-controller already:
 
 ```sh
-kubectl apply -f https://github.com/werf/nelm-operator/releases/latest/download/install.yaml
+kubectl apply -f https://github.com/werf/nelm-operator/releases/download/v1.0.0-alpha.1/install.yaml
 ```
 
 ## Deploy something
@@ -108,9 +114,13 @@ charts must be able to create arbitrary resources, so this is the same bargain
 Flux's helm-controller makes. Treat the ability to create a `Release` as
 equivalent to cluster-admin.
 
-To scope a release down, set `spec.serviceAccountName` and the deploy runs as
-that ServiceAccount, so the release can only touch what that account can touch.
-`--default-service-account` applies one cluster-wide by default.
+To scope a release down, set `spec.serviceAccountName`: the Nelm deploy then
+impersonates that ServiceAccount, so the resources of the release can only be
+written where that account may write. `--default-service-account` applies one
+cluster-wide by default. This is not a full tenancy boundary — the operator still
+reads the referenced ConfigMaps, Secrets and chart sources under its own
+identity, so anyone who can create a `Release` can read any Secret in the
+namespaces it points at.
 
 ## Configuration
 
@@ -121,7 +131,7 @@ Operator flags, set as container args:
 | `--max-concurrent-reconciles` | `1` | Releases reconciled in parallel. Values above 1 are unsafe when releases use different `spec.secretKeyFrom`, because Nelm reads the secret key from a process-global variable. |
 | `--watch-all-namespaces` / `--watch-namespace` | all | Restrict the operator to a single namespace. |
 | `--default-service-account` | none | ServiceAccount to impersonate when a Release does not name one. |
-| `--source-api-group` / `--source-api-version` | `source.toolkit.fluxcd.io` / `v1` | API of the source objects referenced by `spec.chartRef`. Inline `spec.chart` always uses Flux's group. |
+| `--source-api-group` / `--source-api-version` | `source.toolkit.fluxcd.io` / `v1` | API of the source objects, both the ones read for `spec.chartRef` and the ones created for inline `spec.chart`. Point it at a Flux-compatible fork to use that instead. |
 | `--release-storage-driver` | `secret` | Where Helm release metadata lives: `secret`, `configmap` or `sql`. |
 | `--graceful-shutdown-timeout` | `600s` | How long in-flight reconciles get on SIGTERM. |
 | `--log-level` | `info` | `silent`, `error`, `warning`, `info`, `debug`, `trace`. |

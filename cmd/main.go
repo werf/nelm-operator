@@ -69,9 +69,9 @@ func main() {
 	flag.StringVar(&cfg.WatchNamespace, "watch-namespace", "", "If set, only watch this namespace for Release CRDs.")
 	// Source controller integration.
 	flag.StringVar(&cfg.SourceAPIGroup, "source-api-group", "source.toolkit.fluxcd.io",
-		"API group for spec.chartRef sources; inline spec.chart always uses source.toolkit.fluxcd.io.")
+		"API group of the source objects read for spec.chartRef and created for inline spec.chart.")
 	flag.StringVar(&cfg.SourceAPIVersion, "source-api-version", "v1",
-		"API version for spec.chartRef sources; inline spec.chart always uses v1.")
+		"API version of the source objects read for spec.chartRef and created for inline spec.chart.")
 	flag.IntVar(&cfg.HTTPRetry, "http-retry", 9, "Number of retries when downloading chart artifacts.")
 	flag.DurationVar(&cfg.HTTPTimeout, "http-timeout", 30*time.Second, "Timeout for downloading chart artifacts.")
 	flag.StringVar(&dependencyWatchLabelSelector, "dependency-watch-label-selector", "",
