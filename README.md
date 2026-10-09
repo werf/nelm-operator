@@ -1,9 +1,5 @@
 # nelm-operator
 
-> **Alpha.** The `nelm.werf.io/v1alpha1` API will change in incompatible ways, and
-> the operator is built on a pre-release of Nelm v2. Do not point it at a cluster
-> you care about yet.
-
 nelm-operator deploys Helm charts to Kubernetes continuously, from a `Release`
 custom resource, using [Nelm](https://github.com/werf/nelm) as the deployment
 engine instead of Helm.
@@ -24,41 +20,43 @@ source-controller you have.
 
 ## Install
 
+The operator installs itself with Nelm. Get the CLI from
+[the Nelm installation guide](https://github.com/werf/nelm#installation), then:
+
 ```sh
-helm install nelm-operator oci://registry.werf.io/charts/nelm-operator/nelm-operator \
-  --namespace nelm-operator --create-namespace \
-  --devel \
+nelm release install -n nelm-operator -r nelm-operator \
+  oci://registry.werf.io/charts/nelm-operator/nelm-operator \
   --set installFluxSourceController=true
 ```
 
-`--devel` is required while the only published versions are prereleases: without
-it Helm resolves to the newest stable chart, which is an abandoned `0.0.1`. Pin a
-specific one with `--version 1.0.0-alpha.1` instead, once you have picked it.
-
-The CRD ships in the chart's `crds/` directory, which Helm installs but never
-upgrades. While the API is in alpha it changes between releases, so apply the new
-CRD yourself before upgrading:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/werf/nelm-operator/main/charts/nelm-controller/crds/nelm.werf.io_releases.yaml
-```
+Nelm creates the namespace, installs and upgrades the CRDs, and tracks every
+resource to readiness before reporting success.
 
 `installFluxSourceController` is off by default, because a cluster that already
 runs Flux must not get a second source-controller. Turn it on for a cluster that
 has no Flux, as above. If you do run Flux, install the controller alone instead:
 
 ```sh
-helm install nelm-operator oci://registry.werf.io/charts/nelm-operator/nelm-controller \
-  --namespace nelm-operator --create-namespace --devel
+nelm release install -n nelm-operator -r nelm-operator \
+  oci://registry.werf.io/charts/nelm-operator/nelm-controller
+```
+
+Helm works too, if that is what you have. Note that Helm installs the CRDs but
+never upgrades them, so apply the new CRD yourself before a chart upgrade:
+
+```sh
+helm install nelm-operator oci://registry.werf.io/charts/nelm-operator/nelm-operator \
+  --namespace nelm-operator --create-namespace \
+  --set installFluxSourceController=true
 ```
 
 A plain manifest bundle is attached to every
 [release](https://github.com/werf/nelm-operator/releases) if you would rather not
-use Helm. It carries the operator alone, so the cluster needs a Flux
+use a chart at all. It carries the operator alone, so the cluster needs a Flux
 source-controller already:
 
 ```sh
-kubectl apply -f https://github.com/werf/nelm-operator/releases/download/v1.0.0-alpha.1/install.yaml
+kubectl apply -f https://github.com/werf/nelm-operator/releases/latest/download/install.yaml
 ```
 
 ## Deploy something
@@ -114,6 +112,19 @@ supported field. The authoritative reference is
   readiness tracking timeouts, release history limits, provenance verification.
 - **Impersonation** — `spec.serviceAccountName` reconciles the release as that
   ServiceAccount instead of the operator's own identity.
+
+## API stability
+
+The operator version follows semantic versioning: within `1.x`, upgrades do not
+break your `Release` objects or the chart's values.
+
+The CRD is served as `nelm.werf.io/v1alpha1`, which is a separate promise — the
+API is still young, and a future release may add a newer served version with
+breaking changes and a conversion path. This split is normal in the ecosystem;
+Flux shipped `v2.x` with `v2beta2` CRDs for the same reason.
+
+The deployment engine is Nelm v2, which is itself a pre-release. Where the two
+disagree, the operator's API is what this project keeps stable.
 
 ## Permissions
 
@@ -174,13 +185,14 @@ reading conventional commits on `main`. Merging its release PR updates
 manifests and the Makefile, which creates the version tag, which runs the release
 workflow that publishes the image, the charts and the installer bundle.
 
-The prerelease versioning strategy is configured, so an ordinary `feat:` or
-`fix:` bumps `1.0.0-alpha.1` to `1.0.0-alpha.2` rather than proposing a stable
-version. Only the first release, and later the move off alpha, need to be asked
-for explicitly:
+`feat:` bumps the minor version, `fix:` the patch. A breaking change needs a
+major bump, so mark it with `!` after the type.
+
+To release a specific version regardless of what the commits imply, add a
+trailer:
 
 ```sh
-git commit --allow-empty -m "chore: release 1.0.0-alpha.1" -m "Release-As: 1.0.0-alpha.1"
+git commit --allow-empty -m "chore: release 1.2.0" -m "Release-As: 1.2.0"
 ```
 
 ## License
