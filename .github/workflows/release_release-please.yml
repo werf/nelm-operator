@@ -1,0 +1,27 @@
+name: release:release-please
+
+on:
+  push:
+    branches:
+      - "main"
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+permissions: {}
+
+jobs:
+  release-please:
+    if: "${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '): release ') }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          target-branch: ${{ github.ref_name }}
+          config-file: release-please-config.json
+          manifest-file: ${{ format('.release-please/{0}/manifest.json', github.ref_name) }}
+          skip-github-release: true
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
