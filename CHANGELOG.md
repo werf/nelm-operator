@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.0](https://github.com/werf/nelm-operator/compare/v1.0.0-alpha.1...v1.0.0) (2026-10-09)
+
+
+### Features
+
+* package and upload charts with nelm ([f69fa16](https://github.com/werf/nelm-operator/commit/f69fa16bcd9c51bc2e36a71f7ecd46ae2d8d0198))
+* release as 1.0.0 and install with nelm ([ced6af8](https://github.com/werf/nelm-operator/commit/ced6af85eedf0a9ddac448f4d7d828c3eb14bee7))
+* release as 1.0.0 and install with nelm ([e783410](https://github.com/werf/nelm-operator/commit/e7834104bf7b2bebd42dd1ca7d8e05ffec5908fa))
+
+
+### Bug Fixes
+
+* depend on the nelm commit that fixes remote chart downloads ([988bdb9](https://github.com/werf/nelm-operator/commit/988bdb9cac3e97a0431e25b71ca3ac43bbae64b9))
+* track the released image tag where release-please can reach it ([9dfa730](https://github.com/werf/nelm-operator/commit/9dfa7300b5376464519a10107f71af6665edc736))
+
+
+### Miscellaneous Chores
+
+* release 1.0.0 ([d1f677c](https://github.com/werf/nelm-operator/commit/d1f677c3fd0d1b4ed6ff4b5b68c9d0c47262c7f7))
+
 ## 1.0.0-alpha.1 (2026-10-09)
 
 
