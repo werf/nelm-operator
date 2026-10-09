@@ -33,7 +33,7 @@ spec:
           - --health-probe-bind-address=:8081
           - --metrics-bind-address=:8080
           - --metrics-secure=false
-          - --max-concurrent-reconciles={{ .Values.maxConcurentReconciles }}
+          - --max-concurrent-reconciles={{ .Values.maxConcurrentReconciles }}
           {{- with .Values.defaultServiceAccount }}
           - --default-service-account={{ . }}
           {{- end }}

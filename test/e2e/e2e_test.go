@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -44,6 +45,17 @@ const metricsServiceName = "nelm-operator-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
 const metricsRoleBindingName = "nelm-operator-metrics-binding"
+
+const (
+	// releaseName is the Release and chart name used by the lifecycle specs
+	releaseName = "podinfo"
+	// releaseNamespace is where the Release object itself lives
+	releaseNamespace = "default"
+	// releaseTargetNamespace is where the chart is deployed to
+	releaseTargetNamespace = "nelm-operator-e2e"
+	// podinfoChartVersion pins the chart so the specs do not drift with upstream
+	podinfoChartVersion = "6.7.1"
+)
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -286,18 +298,121 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
+	})
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput, err := getMetricsOutput()
-		// Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+	Context("Release", Ordered, func() {
+		AfterAll(func() {
+			By("deleting the release")
+			cmd := exec.Command("kubectl", "delete", "release", releaseName,
+				"-n", releaseNamespace, "--ignore-not-found=true", "--timeout=5m")
+			_, _ = utils.Run(cmd)
+
+			By("deleting the target namespace")
+			cmd = exec.Command("kubectl", "delete", "ns", releaseTargetNamespace, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should install the chart and report Ready", func() {
+			By("applying a Release pointing at the podinfo Helm repository")
+			Expect(applyPodinfoRelease(1)).To(Succeed(), "Failed to apply the Release")
+
+			By("waiting for the Ready condition to become True")
+			Eventually(func(g Gomega) {
+				g.Expect(releaseReadyStatus()).To(Equal("True"))
+			}, 5*time.Minute).Should(Succeed())
+
+			By("verifying the chart workload landed in the target namespace")
+			Eventually(func(g Gomega) {
+				g.Expect(deployedReplicas()).To(Equal("1"))
+			}).Should(Succeed())
+		})
+
+		It("should roll out a change to spec.values", func() {
+			By("raising replicaCount")
+			cmd := exec.Command("kubectl", "patch", "release", releaseName, "-n", releaseNamespace,
+				"--type=merge", "-p", `{"spec":{"values":{"replicaCount":2}}}`)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to patch the Release")
+
+			By("waiting for the deployed workload to follow")
+			Eventually(func(g Gomega) {
+				g.Expect(deployedReplicas()).To(Equal("2"))
+			}, 5*time.Minute).Should(Succeed())
+
+			By("verifying the release stayed Ready")
+			Eventually(func(g Gomega) {
+				g.Expect(releaseReadyStatus()).To(Equal("True"))
+			}, 5*time.Minute).Should(Succeed())
+		})
+
+		It("should uninstall the chart when the Release is deleted", func() {
+			By("deleting the Release")
+			cmd := exec.Command("kubectl", "delete", "release", releaseName,
+				"-n", releaseNamespace, "--timeout=5m")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete the Release")
+
+			By("verifying the chart workload is gone")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "deploy", releaseName, "-n", releaseTargetNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}, 5*time.Minute).Should(Succeed())
+		})
 	})
 })
+
+// applyPodinfoRelease creates or updates the Release used by the lifecycle specs.
+func applyPodinfoRelease(replicas int) error {
+	manifest := fmt.Sprintf(`
+apiVersion: nelm.werf.io/v1alpha1
+kind: Release
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetNamespace: %s
+  interval: 1m
+  chart:
+    repo:
+      url: https://stefanprodan.github.io/podinfo
+      name: podinfo
+      version: "%s"
+      interval: 1m
+  values:
+    replicaCount: %d
+`, releaseName, releaseNamespace, releaseTargetNamespace, podinfoChartVersion, replicas)
+
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(manifest)
+	_, err := utils.Run(cmd)
+
+	return err
+}
+
+// releaseReadyStatus returns the status of the Ready condition of the Release.
+func releaseReadyStatus() string {
+	cmd := exec.Command("kubectl", "get", "release", releaseName, "-n", releaseNamespace,
+		"-o", `jsonpath={.status.conditions[?(@.type=="Ready")].status}`)
+	output, err := utils.Run(cmd)
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(output)
+}
+
+// deployedReplicas returns the desired replica count of the deployed chart workload.
+func deployedReplicas() string {
+	cmd := exec.Command("kubectl", "get", "deploy", releaseName, "-n", releaseTargetNamespace,
+		"-o", "jsonpath={.spec.replicas}")
+	output, err := utils.Run(cmd)
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(output)
+}
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
 // It uses the Kubernetes TokenRequest API to generate a token by directly sending a request

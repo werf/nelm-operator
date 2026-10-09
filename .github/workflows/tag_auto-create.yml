@@ -1,0 +1,77 @@
+name: tag:auto-create
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - CHANGELOG.md
+
+permissions: {}
+
+concurrency:
+  group: tag-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create release tag
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      # Read the version release-please just recorded rather than parsing the
+      # changelog: the heading of a first release carries no comparison link,
+      # so its format differs from every later one.
+      - name: Get released version
+        id: get_version
+        env:
+          MANIFEST: .release-please/${{ github.ref_name }}/manifest.json
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -er '."."' "$MANIFEST")
+          # Build metadata is rejected because the version becomes an image tag.
+          # 0.0.0 is the bootstrap placeholder, not something to release.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || [[ "$VERSION" == "0.0.0" ]]; then
+            echo "Refusing to tag version ${VERSION}" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # The tag is created with a PAT on purpose: a tag pushed with GITHUB_TOKEN
+      # would not start the release workflow that builds and publishes artifacts.
+      - name: Create tag via GitHub API
+        id: create_tag
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+
+          if gh api "repos/${REPOSITORY}/git/ref/tags/${TAG}" &>/dev/null; then
+            echo "Tag ${TAG} already exists. Skipping..."
+            exit 0
+          fi
+
+          gh api "repos/${REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${TAG}" \
+            -f sha="$(git rev-parse HEAD)"
+
+      - name: Relabel merged release PR
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
+        run: |
+          PR_NUMBER=$(gh pr list --state merged --base "$RELEASE_BRANCH" --label "autorelease: pending" --limit 1 --json number -q '.[0].number // empty')
+          if [[ -n "$PR_NUMBER" ]]; then
+            gh pr edit "$PR_NUMBER" --remove-label "autorelease: pending" --add-label "autorelease: tagged"
+          fi

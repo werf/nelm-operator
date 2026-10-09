@@ -7,14 +7,15 @@ nelm-controller:
   fullnameOverride: ""
 
   # defaultServiceAccount:
-  maxConcurentReconciles: 2
+  maxConcurrentReconciles: 1
 
   replicaCount: 1
 
   image:
     repository: registry.werf.io/nelm-operator/nelm-controller
     pullPolicy: IfNotPresent
-    tag: v0.0.1
+    # Defaults to the chart appVersion.
+    tag: ""
 
   podAnnotations:
     prometheus.io/port: "8080"

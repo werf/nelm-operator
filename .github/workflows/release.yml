@@ -1,0 +1,149 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v1.0.0-alpha.1"
+        required: true
+
+permissions: {}
+
+# Never publish the same version twice in parallel, and never abort a publish
+# that is already pushing to the registry.
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  HELM_VERSION: v3.22.0
+  IMAGE_READ_REPO: registry.werf.io/nelm-operator/nelm-controller
+  IMAGE_WRITE_REPO: registry-write.werf.io/nelm-operator/nelm-controller
+  CHARTS_WRITE_REPO: oci://registry-write.werf.io/charts/nelm-operator
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    name: Publish image, charts and installer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Always resolve a tag, never a branch that happens to share its name.
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      # The git tag carries a leading v, Helm chart versions must not.
+      - name: Resolve versions
+        id: version
+        env:
+          GIT_REF: ${{ inputs.tag || github.ref }}
+        run: |
+          set -euo pipefail
+          TAG="${GIT_REF#refs/tags/}"
+          # Build metadata is deliberately rejected: a + is not legal in an
+          # image tag or an OCI chart reference.
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Refusing to release from a ref that is not a version tag: ${TAG}" >&2
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "chart=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Setup Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Login to werf.io registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: registry-write.werf.io
+          username: ${{ secrets.WERF_REGISTRY_USERNAME }}
+          password: ${{ secrets.WERF_REGISTRY_PASSWORD }}
+
+      - name: Generate image meta
+        id: meta
+        uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5.9.0
+        with:
+          images: ${{ env.IMAGE_WRITE_REPO }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.tag }}
+
+      - name: Publish image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          sbom: true
+          provenance: true
+          push: true
+          builder: ${{ steps.buildx.outputs.name }}
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Setup Helm
+        run: |
+          curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp
+          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version --short
+
+      - name: Stamp chart versions
+        env:
+          CHART_VERSION: ${{ steps.version.outputs.chart }}
+          IMAGE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          for chart in nelm-controller flux-source-controller nelm-operator; do
+            sed -i "s/^version: .*/version: ${CHART_VERSION}/" "charts/${chart}/Chart.yaml"
+          done
+          for chart in nelm-controller nelm-operator; do
+            sed -i "s/^appVersion: .*/appVersion: ${IMAGE_TAG}/" "charts/${chart}/Chart.yaml"
+          done
+          sed -i "s/^    version: .*/    version: ${CHART_VERSION}/" charts/nelm-operator/Chart.yaml
+          helm dependency update charts/nelm-operator
+
+      - name: Publish charts
+        run: |
+          mkdir -p dist/charts
+          for chart in nelm-controller flux-source-controller nelm-operator; do
+            helm package "charts/${chart}" --destination dist/charts
+          done
+          for package in dist/charts/*.tgz; do
+            helm push "$package" "${CHARTS_WRITE_REPO}"
+          done
+
+      - name: Build installer
+        env:
+          IMG: ${{ env.IMAGE_READ_REPO }}:${{ steps.version.outputs.tag }}
+        run: make build-installer IMG="$IMG"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          PRERELEASE=""
+          if [[ "$TAG" == *-* ]]; then
+            PRERELEASE="--prerelease"
+          fi
+
+          gh release create "$TAG" \
+            --verify-tag \
+            --title "$TAG" \
+            --generate-notes \
+            $PRERELEASE \
+            dist/install.yaml \
+            dist/charts/*.tgz

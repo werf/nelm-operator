@@ -101,7 +101,7 @@ func writeToTempFile(data []byte, tempDir string, pattern string) (string, error
 	}
 
 	if _, err := f.Write(data); err != nil {
-		f.Close()
+		_ = f.Close()
 		return "", fmt.Errorf("write temp file %s: %w", pattern, err)
 	}
 

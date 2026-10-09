@@ -97,7 +97,7 @@ func GetObjectHashedName(obj client.Object) (string, error) {
 		return "", fmt.Errorf("failed to convert to unstructured: %w", err)
 	}
 
-	spec, _ := unstructuredMap["spec"]
+	spec := unstructuredMap["spec"]
 
 	specBytes, err := json.Marshal(spec)
 	if err != nil {

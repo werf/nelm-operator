@@ -48,8 +48,10 @@ func main() {
 	var dependencyWatchLabelSelector string
 
 	// Controller runtime flags.
-	flag.StringVar(&cfg.MetricsBindAddress, "metrics-bind-address", "0", "The address the metrics endpoint binds to. Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable.")
-	flag.StringVar(&cfg.HealthProbeBindAddress, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&cfg.MetricsBindAddress, "metrics-bind-address", "0",
+		"The address the metrics endpoint binds to. Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable.")
+	flag.StringVar(&cfg.HealthProbeBindAddress, "health-probe-bind-address", ":8081",
+		"The address the probe endpoint binds to.")
 	flag.BoolVar(&cfg.LeaderElect, "leader-elect", false, "Enable leader election for controller manager.")
 	flag.BoolVar(&cfg.MetricsSecure, "metrics-secure", true, "If set, the metrics endpoint is served securely via HTTPS.")
 	flag.StringVar(&metricsCertDir, "metrics-cert-path", "", "The directory that contains the metrics server certificate.")
@@ -57,32 +59,42 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 
 	// Operator-specific flags.
-	flag.StringVar(&cfg.DefaultServiceAccountName, "default-service-account", "", "Service account to use during release deploy.")
-	flag.IntVar(&cfg.MaxConcurrentReconciles, "max-concurrent-reconciles", 5, "Number of Release CRDs reconciled in parallel.")
-	flag.DurationVar(&cfg.GracefulShutdownTimeout, "graceful-shutdown-timeout", 600*time.Second, "How long to wait for in-flight reconciles on SIGTERM.")
+	flag.StringVar(&cfg.DefaultServiceAccountName, "default-service-account", "",
+		"Service account to use during release deploy.")
+	flag.IntVar(&cfg.MaxConcurrentReconciles, "max-concurrent-reconciles", 1,
+		"Number of Release CRDs reconciled in parallel.")
+	flag.DurationVar(&cfg.GracefulShutdownTimeout, "graceful-shutdown-timeout", 600*time.Second,
+		"How long to wait for in-flight reconciles on SIGTERM.")
 	flag.BoolVar(&cfg.WatchAllNamespaces, "watch-all-namespaces", true, "Watch Release CRDs in all namespaces.")
 	flag.StringVar(&cfg.WatchNamespace, "watch-namespace", "", "If set, only watch this namespace for Release CRDs.")
 	// Source controller integration.
 	flag.StringVar(&cfg.SourceAPIGroup, "source-api-group", "source.toolkit.fluxcd.io",
-		"API group for spec.chartRef sources; inline spec.chart always uses source.toolkit.fluxcd.io.")
+		"API group of the source objects read for spec.chartRef and created for inline spec.chart.")
 	flag.StringVar(&cfg.SourceAPIVersion, "source-api-version", "v1",
-		"API version for spec.chartRef sources; inline spec.chart always uses v1.")
+		"API version of the source objects read for spec.chartRef and created for inline spec.chart.")
 	flag.IntVar(&cfg.HTTPRetry, "http-retry", 9, "Number of retries when downloading chart artifacts.")
 	flag.DurationVar(&cfg.HTTPTimeout, "http-timeout", 30*time.Second, "Timeout for downloading chart artifacts.")
-	flag.StringVar(&dependencyWatchLabelSelector, "dependency-watch-label-selector", "", "Watch for dependency resources with matching labels e.g. 'nelm.werf.io/dependency=shard1'.")
+	flag.StringVar(&dependencyWatchLabelSelector, "dependency-watch-label-selector", "",
+		"Watch for dependency resources with matching labels e.g. 'nelm.werf.io/dependency=shard1'.")
 
 	// Release storage.
-	flag.StringVar(&cfg.ReleaseStorageDriver, "release-storage-driver", "secret", "How Helm release metadata is stored: secret, configmap, sql.")
-	flag.StringVar(&cfg.ReleaseStorageSQLConnection, "release-storage-sql-connection", "", "SQL connection string when using sql storage driver.")
+	flag.StringVar(&cfg.ReleaseStorageDriver, "release-storage-driver", "secret",
+		"How Helm release metadata is stored: secret, configmap, sql.")
+	flag.StringVar(&cfg.ReleaseStorageSQLConnection, "release-storage-sql-connection", "",
+		"SQL connection string when using sql storage driver.")
 
 	// Kubernetes API.
 	flag.IntVar(&cfg.KubeQPSLimit, "kube-qps-limit", 50, "QPS limit for requests to Kubernetes API.")
 	flag.IntVar(&cfg.KubeBurstLimit, "kube-burst-limit", 100, "Burst limit for requests to Kubernetes API.")
-	flag.DurationVar(&cfg.KubeRequestTimeout, "kube-request-timeout", 0, "Timeout for individual requests to Kubernetes API. 0 = no timeout.")
-	flag.IntVar(&cfg.NetworkParallelism, "network-parallelism", 30, "Limit of network-related tasks to run in parallel per reconcile.")
+	flag.DurationVar(&cfg.KubeRequestTimeout, "kube-request-timeout", 0,
+		"Timeout for individual requests to Kubernetes API. 0 = no timeout.")
+	flag.IntVar(&cfg.NetworkParallelism, "network-parallelism", 30,
+		"Limit of network-related tasks to run in parallel per reconcile.")
 
 	// TypeScript / Misc.
-	flag.StringVar(&cfg.DenoBinaryPath, "deno-binary-path", "", "Path to the Deno binary for TypeScript chart rendering. Falls back to $NELM_DENO_BINARY_PATH, then to downloading Deno at runtime.")
+	flag.StringVar(&cfg.DenoBinaryPath, "deno-binary-path", "",
+		"Path to the Deno binary for TypeScript chart rendering. "+
+			"Falls back to $NELM_DENO_BINARY_PATH, then to downloading Deno at runtime.")
 	flag.StringVar(&cfg.TempDir, "temp-dir", "", "Directory for temporary files.")
 
 	// Logging.
@@ -110,7 +122,8 @@ func main() {
 	}
 
 	if cfg.MaxConcurrentReconciles > 1 {
-		setupLog.Info("WARNING: --max-concurrent-reconciles > 1 is unsafe when releases use different secretKeyFrom values due to a process-global WERF_SECRET_KEY env var race in the nelm library")
+		setupLog.Info("WARNING: --max-concurrent-reconciles > 1 is unsafe when releases use different " +
+			"secretKeyFrom values due to a process-global WERF_SECRET_KEY env var race in the nelm library")
 	}
 
 	if v := os.Getenv("NELM_RELEASE_STORAGE_SQL_CONNECTION"); v != "" && cfg.ReleaseStorageSQLConnection == "" {

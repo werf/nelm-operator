@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= example.com/nelm-controller:latest
+IMG ?= registry.werf.io/nelm-operator/nelm-controller:v0.0.1# x-release-please-version
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -46,6 +46,11 @@ help: ## Display this help.
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(MAKE) sync-chart-crds
+
+.PHONY: sync-chart-crds
+sync-chart-crds: ## Copy generated CRDs into the nelm-controller chart.
+	cp config/crd/bases/*.yaml charts/nelm-controller/crds/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -140,13 +145,10 @@ docker-push: ## Push docker image with the manager.
 PLATFORMS ?= linux/arm64,linux/amd64
 .PHONY: docker-buildx
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
-	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
-	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name nelm-operator-builder
 	$(CONTAINER_TOOL) buildx use nelm-operator-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile .
 	- $(CONTAINER_TOOL) buildx rm nelm-operator-builder
-	rm Dockerfile.cross
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.

@@ -378,8 +378,7 @@ var _ = Describe("Reconcile spec.suspend", func() {
 			NamespacedName: types.NamespacedName{Name: "suspended", Namespace: "default"},
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(res.Requeue).To(BeFalse())
-		Expect(res.RequeueAfter).To(BeZero())
+		Expect(res).To(Equal(ctrl.Result{}))
 		Consistently(rec.Events).ShouldNot(Receive())
 
 		var got nelmv1alpha1.Release
