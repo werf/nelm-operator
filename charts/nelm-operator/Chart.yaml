@@ -1,16 +1,16 @@
 apiVersion: v2
-appVersion: v0.0.1 # x-release-please-version
+appVersion: v0.0.1
 description: A Helm chart for nelm-operator
 name: nelm-operator
 sources:
   - https://github.com/werf/nelm-operator/tree/main/charts/nelm-operator
 type: application
-version: 0.0.1 # x-release-please-version
+version: 1.0.0-alpha.1
 dependencies:
   - name: nelm-controller
-    version: 0.0.1 # x-release-please-version
+    version: 0.0.1
     repository: file://../nelm-controller
   - name: flux-source-controller
-    version: 0.0.1 # x-release-please-version
+    version: 0.0.1
     repository: file://../flux-source-controller
     condition: installFluxSourceController
