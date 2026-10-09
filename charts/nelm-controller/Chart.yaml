@@ -5,4 +5,4 @@ name: nelm-controller
 sources:
   - https://github.com/werf/nelm-operator/tree/main/charts/nelm-controller
 type: application
-version: 1.0.0-alpha.1
+version: 1.0.0
