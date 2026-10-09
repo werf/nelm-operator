@@ -1,8 +1,8 @@
 apiVersion: v2
-appVersion: v0.0.1 # x-release-please-version
+appVersion: v0.0.1
 description: A Helm chart for nelm controller
 name: nelm-controller
 sources:
   - https://github.com/werf/nelm-operator/tree/main/charts/nelm-controller
 type: application
-version: 0.0.1 # x-release-please-version
+version: 1.0.0-alpha.1
