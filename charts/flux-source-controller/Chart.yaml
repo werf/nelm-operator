@@ -6,4 +6,4 @@ sources:
   - >-
     https://github.com/werf/nelm-operator/tree/main/charts/flux-source-controller
 type: application
-version: 1.0.0-alpha.1
+version: 1.0.0

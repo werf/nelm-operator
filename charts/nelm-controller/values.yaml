@@ -17,7 +17,7 @@ replicaCount: 1
 image:
   repository: registry.werf.io/nelm-operator/nelm-controller
   pullPolicy: IfNotPresent
-  tag: v1.0.0-alpha.1 # x-release-please-version
+  tag: v1.0.0 # x-release-please-version
 
 podAnnotations:
   prometheus.io/port: "8080"
