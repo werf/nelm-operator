@@ -95,98 +95,9 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	var chartRef *nelmv1alpha1.ChartSourceRef
-
-	if rel.Spec.Chart != nil {
-		expectedChartSource, err := source.BuildChartSourceFromRelease(r.Config.SourceAPIGroup, r.Config.SourceAPIVersion, &rel)
-		if err != nil {
-			return r.handleFailure(ctx, &rel, false, fmt.Errorf("build source from spec.chart: %w", err), nil, false)
-		}
-
-		expectedChartSourceRef := &nelmv1alpha1.ChartSourceReference{
-			Group:     r.Config.SourceAPIGroup,
-			Version:   r.Config.SourceAPIVersion,
-			Kind:      expectedChartSource.GetObjectKind().GroupVersionKind().Kind,
-			Namespace: expectedChartSource.GetNamespace(),
-			Name:      expectedChartSource.GetName(),
-		}
-
-		switch rel.Status.ChartSourcePhase {
-		case "", nelmv1alpha1.ChartSourcePhaseReady:
-			if !reflect.DeepEqual(rel.Status.LastAppliedChartSource, expectedChartSourceRef) {
-				// TODO: make sense to mark Reconcile condition as True here.
-				rel.Status.ChartSourcePhase = nelmv1alpha1.ChartSourcePhasePending
-				rel.Status.CandidateChartSource = expectedChartSourceRef
-				if err := r.Status().Update(ctx, &rel); err != nil {
-					return ctrl.Result{}, err
-				}
-				return ctrl.Result{Requeue: true}, nil
-			}
-		case nelmv1alpha1.ChartSourcePhasePending:
-			// TODO: make sense to mark Reconcile condition as True here.
-			if !reflect.DeepEqual(rel.Status.CandidateChartSource, expectedChartSourceRef) {
-				rel.Status.CandidateChartSource = expectedChartSourceRef
-				if err := r.Status().Update(ctx, &rel); err != nil {
-					return ctrl.Result{}, err
-				}
-				return ctrl.Result{Requeue: true}, nil
-			}
-
-			if err := r.ensureChartSourceRef(ctx, &rel, expectedChartSource); err != nil {
-				return r.handleFailure(ctx, &rel, false, fmt.Errorf("ensure spec.chart source: %w", err), nil, false)
-			}
-
-			rel.Status.ChartSourcePhase = nelmv1alpha1.ChartSourcePhaseDisconnecting
-			if err := r.Status().Update(ctx, &rel); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{Requeue: true}, nil
-
-		case nelmv1alpha1.ChartSourcePhaseDisconnecting:
-			// TODO: make sense to mark Reconcile condition as True here.
-			if rel.Status.LastAppliedChartSource != nil && !reflect.DeepEqual(rel.Status.LastAppliedChartSource, rel.Status.CandidateChartSource) {
-				if err := r.cleanupChartSourceRef(ctx, &rel, rel.Status.LastAppliedChartSource); err != nil {
-					return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup last applied chart source: %w", err), nil, false)
-				}
-			}
-
-			rel.Status.LastAppliedChartSource = rel.Status.CandidateChartSource.DeepCopy()
-			rel.Status.ChartSourcePhase = nelmv1alpha1.ChartSourcePhaseReady
-			if err := r.Status().Update(ctx, &rel); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{Requeue: true}, nil
-		}
-
-		chartRef, err = r.ensureHelmChart(ctx, &rel, expectedChartSource.GetName())
-		if err != nil {
-			return r.handleFailure(ctx, &rel, false, fmt.Errorf("ensure chart source HelmChart: %w", err), nil, false)
-		}
-	} else {
-		// Cleanup chartSource on switching from spec.Chart to spec.chartRef.
-		if rel.Status.LastAppliedChartSource != nil || rel.Status.CandidateChartSource != nil {
-			if err := r.cleanupChartSourceRef(ctx, &rel, rel.Status.LastAppliedChartSource); err != nil {
-				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart source: %w", err), nil, false)
-			}
-			if err := r.cleanupChartSourceRef(ctx, &rel, rel.Status.CandidateChartSource); err != nil {
-				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart source: %w", err), nil, false)
-			}
-			rel.Status.LastAppliedChartSource = nil
-			rel.Status.ChartSourcePhase = ""
-			rel.Status.CandidateChartSource = nil
-			if err := r.Status().Update(ctx, &rel); err != nil {
-				return ctrl.Result{}, err
-			}
-			if err := r.cleanupHelmChart(ctx, &rel); err != nil {
-				return r.handleFailure(ctx, &rel, false, fmt.Errorf("cleanup former spec.chart HelmChart: %w", err), nil, false)
-			}
-			return ctrl.Result{Requeue: true}, nil
-		}
-
-		chartRef = rel.Spec.ChartRef
-		if chartRef.Namespace == "" {
-			chartRef.Namespace = rel.Namespace
-		}
+	chartRef, done, res, err := r.resolveChartRef(ctx, &rel)
+	if done {
+		return res, err
 	}
 
 	releaseName := rel.Name
@@ -202,7 +113,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err != nil {
 		return r.handleFailure(ctx, &rel, false, fmt.Errorf("create temp directory: %w", err), nil, false)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	chartResult, err := source.ResolveChartRef(ctx, r.Client, r.Config.SourceAPIGroup, r.Config.SourceAPIVersion, chartRef, tempDir, r.Config.HTTPRetry, r.Config.HTTPTimeout)
 	if err != nil {
@@ -227,6 +138,116 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return r.reconcileInstall(ctx, &rel, chartResult, tempDir, preRel, foreignChange)
+}
+
+// resolveChartRef drives the chart source phase machine for spec.chart and
+// resolves either form of chart reference into a HelmChart to deploy from. A
+// true done means the phase machine advanced and the caller must return res and
+// err without reconciling further.
+func (r *ReleaseReconciler) resolveChartRef(
+	ctx context.Context,
+	rel *nelmv1alpha1.Release,
+) (*nelmv1alpha1.ChartSourceRef, bool, ctrl.Result, error) {
+	fail := func(err error) (*nelmv1alpha1.ChartSourceRef, bool, ctrl.Result, error) {
+		res, err := r.handleFailure(ctx, rel, false, err, nil, false)
+		return nil, true, res, err
+	}
+
+	if rel.Spec.Chart == nil {
+		// Cleanup chartSource on switching from spec.Chart to spec.chartRef.
+		if rel.Status.LastAppliedChartSource != nil || rel.Status.CandidateChartSource != nil {
+			if err := r.cleanupChartSourceRef(ctx, rel, rel.Status.LastAppliedChartSource); err != nil {
+				return fail(fmt.Errorf("cleanup former spec.chart source: %w", err))
+			}
+			if err := r.cleanupChartSourceRef(ctx, rel, rel.Status.CandidateChartSource); err != nil {
+				return fail(fmt.Errorf("cleanup former spec.chart source: %w", err))
+			}
+			rel.Status.LastAppliedChartSource = nil
+			rel.Status.ChartSourcePhase = ""
+			rel.Status.CandidateChartSource = nil
+			if err := r.Status().Update(ctx, rel); err != nil {
+				return nil, true, ctrl.Result{}, err
+			}
+			if err := r.cleanupHelmChart(ctx, rel); err != nil {
+				return fail(fmt.Errorf("cleanup former spec.chart HelmChart: %w", err))
+			}
+			return nil, true, ctrl.Result{Requeue: true}, nil
+		}
+
+		chartRef := rel.Spec.ChartRef
+		if chartRef.Namespace == "" {
+			chartRef.Namespace = rel.Namespace
+		}
+		return chartRef, false, ctrl.Result{}, nil
+	}
+
+	expectedChartSource, err := source.BuildChartSourceFromRelease(r.Config.SourceAPIGroup, r.Config.SourceAPIVersion, rel)
+	if err != nil {
+		return fail(fmt.Errorf("build source from spec.chart: %w", err))
+	}
+
+	expectedChartSourceRef := &nelmv1alpha1.ChartSourceReference{
+		Group:     r.Config.SourceAPIGroup,
+		Version:   r.Config.SourceAPIVersion,
+		Kind:      expectedChartSource.GetObjectKind().GroupVersionKind().Kind,
+		Namespace: expectedChartSource.GetNamespace(),
+		Name:      expectedChartSource.GetName(),
+	}
+
+	switch rel.Status.ChartSourcePhase {
+	case "", nelmv1alpha1.ChartSourcePhaseReady:
+		if !reflect.DeepEqual(rel.Status.LastAppliedChartSource, expectedChartSourceRef) {
+			// TODO: make sense to mark Reconcile condition as True here.
+			rel.Status.ChartSourcePhase = nelmv1alpha1.ChartSourcePhasePending
+			rel.Status.CandidateChartSource = expectedChartSourceRef
+			if err := r.Status().Update(ctx, rel); err != nil {
+				return nil, true, ctrl.Result{}, err
+			}
+			return nil, true, ctrl.Result{Requeue: true}, nil
+		}
+	case nelmv1alpha1.ChartSourcePhasePending:
+		// TODO: make sense to mark Reconcile condition as True here.
+		if !reflect.DeepEqual(rel.Status.CandidateChartSource, expectedChartSourceRef) {
+			rel.Status.CandidateChartSource = expectedChartSourceRef
+			if err := r.Status().Update(ctx, rel); err != nil {
+				return nil, true, ctrl.Result{}, err
+			}
+			return nil, true, ctrl.Result{Requeue: true}, nil
+		}
+
+		if err := r.ensureChartSourceRef(ctx, rel, expectedChartSource); err != nil {
+			return fail(fmt.Errorf("ensure spec.chart source: %w", err))
+		}
+
+		rel.Status.ChartSourcePhase = nelmv1alpha1.ChartSourcePhaseDisconnecting
+		if err := r.Status().Update(ctx, rel); err != nil {
+			return nil, true, ctrl.Result{}, err
+		}
+		return nil, true, ctrl.Result{Requeue: true}, nil
+
+	case nelmv1alpha1.ChartSourcePhaseDisconnecting:
+		// TODO: make sense to mark Reconcile condition as True here.
+		if rel.Status.LastAppliedChartSource != nil &&
+			!reflect.DeepEqual(rel.Status.LastAppliedChartSource, rel.Status.CandidateChartSource) {
+			if err := r.cleanupChartSourceRef(ctx, rel, rel.Status.LastAppliedChartSource); err != nil {
+				return fail(fmt.Errorf("cleanup last applied chart source: %w", err))
+			}
+		}
+
+		rel.Status.LastAppliedChartSource = rel.Status.CandidateChartSource.DeepCopy()
+		rel.Status.ChartSourcePhase = nelmv1alpha1.ChartSourcePhaseReady
+		if err := r.Status().Update(ctx, rel); err != nil {
+			return nil, true, ctrl.Result{}, err
+		}
+		return nil, true, ctrl.Result{Requeue: true}, nil
+	}
+
+	chartRef, err := r.ensureHelmChart(ctx, rel, expectedChartSource.GetName())
+	if err != nil {
+		return fail(fmt.Errorf("ensure chart source HelmChart: %w", err))
+	}
+
+	return chartRef, false, ctrl.Result{}, nil
 }
 
 func (r *ReleaseReconciler) ensureChartSourceRef(ctx context.Context, rel *nelmv1alpha1.Release, chartSource client.Object) error {
@@ -367,6 +388,9 @@ func (r *ReleaseReconciler) ensureHelmChart(ctx context.Context, rel *nelmv1alph
 		return nil, fmt.Errorf("set helm chart controller reference: %w", err)
 	}
 
+	// client.Client.Apply() needs a generated apply configuration, which the Flux
+	// source-controller API module does not ship for its typed objects.
+	//nolint:staticcheck // SA1019
 	if err := r.Patch(ctx, obj, client.Apply, client.FieldOwner("nelm-operator"), client.ForceOwnership); err != nil {
 		return nil, fmt.Errorf("apply helm chart %s %s/%s: %w", obj.GetObjectKind().GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), err)
 	}
@@ -403,7 +427,7 @@ func getChartSourceReleaseRefNamesSlice(obj client.Object) []string {
 	if annotations == nil {
 		return []string{}
 	}
-	val, _ := annotations[nelmv1alpha1.SourceRefReleaseRefAnnotationName]
+	val := annotations[nelmv1alpha1.SourceRefReleaseRefAnnotationName]
 	return strings.Split(val, ",")
 }
 
@@ -600,7 +624,7 @@ func (r *ReleaseReconciler) reconcileDelete(ctx context.Context, rel *nelmv1alph
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	uninstallOpts, err := r.buildUninstallOptions(rel, tempDir)
 	if err != nil {
@@ -751,7 +775,7 @@ func (r *ReleaseReconciler) attemptRollback(ctx context.Context, rel *nelmv1alph
 		log.Error(err, "Failed to create temp dir for rollback")
 		return
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	rollbackOpts, err := r.buildRollbackOptions(rel, tempDir)
 	if err != nil {
@@ -912,7 +936,7 @@ func writePatchesFile(renderPatches, diffPatches []nelmv1alpha1.Patch, tempDir s
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := f.Write(data); err != nil {
 		return "", fmt.Errorf("write temp file: %w", err)
