@@ -191,12 +191,8 @@ spec:
   validation:
     noResourceValidation: false     # disable resource schema validation (default: false)
     noValuesSchemaValidation: false # disable validating values against values.schema.json (default: false)
-    localOnly: false                # only use local schemas, no HTTP fetching
-    kubeVersion: "1.31.0"           # Kubernetes version for schema validation (has a default)
     skip:                           # skip validation for specific resources
       - CustomThing
-    schemas:                        # override default schema sources
-      - https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/{{ .NormalizedKubeVersion }}/{{ .ResourceKind }}{{ .StrictSuffix }}.json
     extraSchemas:                   # additional schema sources (appended to defaults)
       - https://my-schemas.example.com/{{ .NormalizedKubeVersion }}/{{ .ResourceKind }}.json
     schemaCacheLifetime: 48h        # how long to cache downloaded schemas
