@@ -19,9 +19,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  HELM_VERSION: v3.22.0
   IMAGE_READ_REPO: registry.werf.io/nelm-operator/nelm-controller
   IMAGE_WRITE_REPO: registry-write.werf.io/nelm-operator/nelm-controller
+  CHARTS_WRITE_REGISTRY: registry-write.werf.io
   CHARTS_WRITE_REPO: oci://registry-write.werf.io/charts/nelm-operator
 
 jobs:
@@ -95,34 +95,61 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Setup Helm
+      # Build the CLI from the same Nelm the operator embeds, so charts are
+      # packaged by exactly the engine that will deploy them. It cannot be go
+      # installed: the Nelm module carries a replace directive.
+      - name: Setup Nelm
         run: |
-          curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp
-          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
-          helm version --short
+          set -euo pipefail
+          VERSION=$(go list -m -f '{{.Version}}' github.com/werf/nelm/v2)
+          # A pseudo-version ends in the commit it was built from; a real one is a tag.
+          if [[ "$VERSION" =~ -([0-9a-f]{12})$ ]]; then
+            REF="${BASH_REMATCH[1]}"
+          else
+            REF="$VERSION"
+          fi
 
+          git clone --filter=blob:none https://github.com/werf/nelm /tmp/nelm-src
+          git -C /tmp/nelm-src checkout --detach "$REF"
+          (cd /tmp/nelm-src && go build -o /usr/local/bin/nelm ./cmd/nelm)
+          nelm version
+
+      # release-please already recorded the released version in the charts, but
+      # a tag cut by hand has not been through it.
       - name: Stamp chart versions
         env:
           CHART_VERSION: ${{ steps.version.outputs.chart }}
           IMAGE_TAG: ${{ steps.version.outputs.tag }}
         run: |
+          set -euo pipefail
           for chart in nelm-controller flux-source-controller nelm-operator; do
             sed -i "s/^version: .*/version: ${CHART_VERSION}/" "charts/${chart}/Chart.yaml"
           done
           for chart in nelm-controller nelm-operator; do
             sed -i "s/^appVersion: .*/appVersion: ${IMAGE_TAG}/" "charts/${chart}/Chart.yaml"
           done
-          sed -i "s/^    version: .*/    version: ${CHART_VERSION}/" charts/nelm-operator/Chart.yaml
-          helm dependency update charts/nelm-operator
+          for values in charts/nelm-controller/values.yaml charts/nelm-operator/values.yaml; do
+            sed -i "s|^\(\s*tag: \).*\(# x-release-please-version\)|\1${IMAGE_TAG} \2|" "$values"
+          done
+          nelm chart dependency update charts/nelm-operator
 
       - name: Publish charts
+        env:
+          NELM_USERNAME: ${{ secrets.WERF_REGISTRY_USERNAME }}
+          NELM_PASSWORD: ${{ secrets.WERF_REGISTRY_PASSWORD }}
         run: |
+          set -euo pipefail
+          # nelm keeps its own registry credentials, so the earlier docker login
+          # does not cover the upload.
+          nelm chart repo login "${CHARTS_WRITE_REGISTRY}" \
+            --username "$NELM_USERNAME" --password-stdin <<<"$NELM_PASSWORD"
+
           mkdir -p dist/charts
           for chart in nelm-controller flux-source-controller nelm-operator; do
-            helm package "charts/${chart}" --destination dist/charts
+            nelm chart pack "charts/${chart}" --destination dist/charts
           done
           for package in dist/charts/*.tgz; do
-            helm push "$package" "${CHARTS_WRITE_REPO}"
+            nelm chart upload "$package" "${CHARTS_WRITE_REPO}"
           done
 
       - name: Build installer

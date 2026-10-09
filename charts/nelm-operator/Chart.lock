@@ -1,9 +1,9 @@
 dependencies:
 - name: nelm-controller
   repository: file://../nelm-controller
-  version: 0.0.1
+  version: 1.0.0-alpha.1
 - name: flux-source-controller
   repository: file://../flux-source-controller
-  version: 0.0.1
-digest: sha256:ca7c12af24e9d34de2c600c6bce35b9cc5d336452f89df9c0df5881ecf2b51fb
-generated: "2026-10-09T16:53:00.122335194+03:00"
+  version: 1.0.0-alpha.1
+digest: sha256:27932a759197301d074f21555f594b9320ef23df9031350edf496e654a7d2d11
+generated: "2026-10-10T01:37:16.545180892+03:00"
