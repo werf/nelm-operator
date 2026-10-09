@@ -9,9 +9,15 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: tag-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Create release tag
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -31,8 +37,10 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(jq -er '."."' "$MANIFEST")
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Refusing to tag a version that is not semver: ${VERSION}" >&2
+          # Build metadata is rejected because the version becomes an image tag.
+          # 0.0.0 is the bootstrap placeholder, not something to release.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || [[ "$VERSION" == "0.0.0" ]]; then
+            echo "Refusing to tag version ${VERSION}" >&2
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"

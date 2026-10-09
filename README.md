@@ -35,6 +35,14 @@ helm install nelm-operator oci://registry.werf.io/charts/nelm-operator/nelm-oper
 it Helm resolves to the newest stable chart, which is an abandoned `0.0.1`. Pin a
 specific one with `--version 1.0.0-alpha.1` instead, once you have picked it.
 
+The CRD ships in the chart's `crds/` directory, which Helm installs but never
+upgrades. While the API is in alpha it changes between releases, so apply the new
+CRD yourself before upgrading:
+
+```sh
+kubectl apply -f https://raw.githubusercontent.com/werf/nelm-operator/main/charts/nelm-controller/crds/nelm.werf.io_releases.yaml
+```
+
 `installFluxSourceController` is off by default, because a cluster that already
 runs Flux must not get a second source-controller. Turn it on for a cluster that
 has no Flux, as above. If you do run Flux, install the controller alone instead:
@@ -119,8 +127,8 @@ impersonates that ServiceAccount, so the resources of the release can only be
 written where that account may write. `--default-service-account` applies one
 cluster-wide by default. This is not a full tenancy boundary — the operator still
 reads the referenced ConfigMaps, Secrets and chart sources under its own
-identity, so anyone who can create a `Release` can read any Secret in the
-namespaces it points at.
+identity, so anyone who can create a `Release` can read any Secret in that
+Release's own namespace.
 
 ## Configuration
 
@@ -162,11 +170,14 @@ edit `config/crd/bases` or `charts/nelm-controller/crds` by hand.
 
 Versions come from [release-please](https://github.com/googleapis/release-please)
 reading conventional commits on `main`. Merging its release PR updates
-`CHANGELOG.md`, which creates the version tag, which runs the release workflow
-that publishes the image, the charts and the installer bundle.
+`CHANGELOG.md` and the versions recorded across the charts, the kustomize
+manifests and the Makefile, which creates the version tag, which runs the release
+workflow that publishes the image, the charts and the installer bundle.
 
-While the project is in alpha, release-please will not invent the prerelease
-counter. Request each one explicitly with an empty commit:
+The prerelease versioning strategy is configured, so an ordinary `feat:` or
+`fix:` bumps `1.0.0-alpha.1` to `1.0.0-alpha.2` rather than proposing a stable
+version. Only the first release, and later the move off alpha, need to be asked
+for explicitly:
 
 ```sh
 git commit --allow-empty -m "chore: release 1.0.0-alpha.1" -m "Release-As: 1.0.0-alpha.1"
