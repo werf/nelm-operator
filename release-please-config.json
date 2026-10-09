@@ -8,7 +8,10 @@
         "Makefile",
         "config/manager/kustomization.yaml",
         "charts/nelm-controller/values.yaml",
-        "charts/nelm-operator/values.yaml"
+        "charts/nelm-operator/values.yaml",
+        "charts/nelm-controller/Chart.yaml",
+        "charts/flux-source-controller/Chart.yaml",
+        "charts/nelm-operator/Chart.yaml"
       ]
     }
   }
