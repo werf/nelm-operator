@@ -1,16 +1,18 @@
 apiVersion: v2
-appVersion: v0.0.1
+appVersion: v1.0.0-alpha.1
 description: A Helm chart for nelm-operator
 name: nelm-operator
 sources:
   - https://github.com/werf/nelm-operator/tree/main/charts/nelm-operator
 type: application
 version: 1.0.0-alpha.1
+# The subcharts are vendored, so there is only ever one version to resolve and
+# pinning it would just be another place to forget to bump.
 dependencies:
   - name: nelm-controller
-    version: 0.0.1
+    version: ">=0.0.0-0"
     repository: file://../nelm-controller
   - name: flux-source-controller
-    version: 0.0.1
+    version: ">=0.0.0-0"
     repository: file://../flux-source-controller
     condition: installFluxSourceController

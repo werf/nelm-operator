@@ -2,15 +2,13 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "go",
   "include-v-in-tag": true,
-  "initial-version": "1.0.0",
   "packages": {
     ".": {
       "extra-files": [
         "Makefile",
         "config/manager/kustomization.yaml",
-        "charts/nelm-controller/Chart.yaml",
-        "charts/flux-source-controller/Chart.yaml",
-        "charts/nelm-operator/Chart.yaml"
+        "charts/nelm-controller/values.yaml",
+        "charts/nelm-operator/values.yaml"
       ]
     }
   }

@@ -119,7 +119,9 @@ jobs:
           for chart in nelm-controller nelm-operator; do
             sed -i "s/^appVersion: .*/appVersion: ${IMAGE_TAG}/" "charts/${chart}/Chart.yaml"
           done
-          sed -i "s/^    version: .*/    version: ${CHART_VERSION}/" charts/nelm-operator/Chart.yaml
+          for values in charts/nelm-controller/values.yaml charts/nelm-operator/values.yaml; do
+            sed -i "s|^\(\s*tag: \).*\(# x-release-please-version\)|\1${IMAGE_TAG} \2|" "$values"
+          done
           nelm chart dependency update charts/nelm-operator
 
       - name: Publish charts
