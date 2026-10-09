@@ -19,7 +19,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NELM_VERSION: 2.0.0-alpha.2
   IMAGE_READ_REPO: registry.werf.io/nelm-operator/nelm-controller
   IMAGE_WRITE_REPO: registry-write.werf.io/nelm-operator/nelm-controller
   CHARTS_WRITE_REGISTRY: registry-write.werf.io
@@ -96,13 +95,23 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      # Build the CLI from the same Nelm the operator embeds, so charts are
+      # packaged by exactly the engine that will deploy them. It cannot be go
+      # installed: the Nelm module carries a replace directive.
       - name: Setup Nelm
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/nelm \
-            "https://tuf.nelm.sh/targets/releases/${NELM_VERSION}/linux-amd64/bin/nelm"
-          chmod +x /tmp/nelm
-          sudo mv /tmp/nelm /usr/local/bin/nelm
+          VERSION=$(go list -m -f '{{.Version}}' github.com/werf/nelm/v2)
+          # A pseudo-version ends in the commit it was built from; a real one is a tag.
+          if [[ "$VERSION" =~ -([0-9a-f]{12})$ ]]; then
+            REF="${BASH_REMATCH[1]}"
+          else
+            REF="$VERSION"
+          fi
+
+          git clone --filter=blob:none https://github.com/werf/nelm /tmp/nelm-src
+          git -C /tmp/nelm-src checkout --detach "$REF"
+          (cd /tmp/nelm-src && go build -o /usr/local/bin/nelm ./cmd/nelm)
           nelm version
 
       # release-please already recorded the released version in the charts, but
