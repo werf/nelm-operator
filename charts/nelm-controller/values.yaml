@@ -6,14 +6,19 @@ nameOverride: ""
 fullnameOverride: ""
 
 # defaultServiceAccount:
-maxConcurentReconciles: 2
+
+# Reconciling more than one Release at a time is unsafe when releases use
+# different secretKeyFrom values, because nelm reads the secret key from a
+# process-global environment variable.
+maxConcurrentReconciles: 1
 
 replicaCount: 1
 
 image:
   repository: registry.werf.io/nelm-operator/nelm-controller
   pullPolicy: IfNotPresent
-  tag: v0.0.1
+  # Defaults to the chart appVersion.
+  tag: ""
 
 podAnnotations:
   prometheus.io/port: "8080"

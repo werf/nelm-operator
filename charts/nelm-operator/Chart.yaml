@@ -9,8 +9,8 @@ version: 0.0.1
 dependencies:
   - name: nelm-controller
     version: 0.0.1
-    repository: oci://registry.werf.io/charts/nelm-operator
+    repository: file://../nelm-controller
   - name: flux-source-controller
     version: 0.0.1
-    repository: oci://registry.werf.io/charts/nelm-operator
+    repository: file://../flux-source-controller
     condition: installFluxSourceController
