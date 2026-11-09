@@ -257,6 +257,47 @@ cluster. The authoritative reference is
 - **Impersonation** — `spec.serviceAccountName` reconciles the release as that
   ServiceAccount instead of the operator's own identity.
 
+## Managing Releases with Argo CD
+
+Argo CD can sync `Release` objects from Git like any other manifest, and the
+operator then deploys the charts they describe. Check how your Argo CD tracks
+resources first.
+
+> [!WARNING]
+> With label tracking, Argo CD considers a resource part of an Application when
+> its `app.kubernetes.io/instance` label equals the Application's name. Most
+> charts set that label to `.Release.Name`, which is the name of the `Release`
+> object. If a `Release` shares its name with an Argo CD Application deploying to
+> the same cluster, typically the one that syncs it, Argo CD takes the resources
+> of the chart for that Application's own: they are not in its Git source, so it
+> reports them out of sync and deletes them when it syncs with pruning enabled.
+
+Use either of the safe setups in the `argocd-cm` ConfigMap:
+
+- Annotation tracking, the default since Argo CD 3.0. Argo CD then recognises
+  its resources by the `argocd.argoproj.io/tracking-id` annotation, which charts
+  do not set:
+
+  ```yaml
+  data:
+    application.resourceTrackingMethod: annotation
+  ```
+
+- Label tracking with a label of its own, anything but
+  `app.kubernetes.io/instance`:
+
+  ```yaml
+  data:
+    application.instanceLabelKey: argocd.argoproj.io/instance
+  ```
+
+After changing either setting, sync your existing Applications so Argo CD marks
+their resources the new way. An Application with the `ApplyOutOfSyncOnly=true`
+sync option needs an explicit sync right after the switch to annotation
+tracking, or its unchanged resources end up orphaned; see
+[Argo CD resource tracking](https://argo-cd.readthedocs.io/en/stable/user-guide/resource_tracking/)
+and the [3.0 upgrade notes](https://argo-cd.readthedocs.io/en/stable/operator-manual/upgrading/2.14-3.0/).
+
 ## API stability
 
 The operator version follows semantic versioning: within `1.x`, upgrades do not
