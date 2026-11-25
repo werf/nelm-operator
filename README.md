@@ -162,8 +162,7 @@ make manifests generate  # after changing api/v1alpha1
 
 ## Reference
 
-Every field of a `Release`, with its default. The same file is
-[`config/samples/nelm_v1alpha1_release_full.yaml`](config/samples/nelm_v1alpha1_release_full.yaml).
+Every field of a `Release`, with its default:
 
 ```yaml
 # Every field of a Release, with its default. Only spec.chart or spec.chartRef is
