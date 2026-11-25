@@ -1,202 +1,265 @@
-# Full Release example with all supported fields.
-# Most fields are optional — see nelm_v1alpha1_release.yaml for a minimal example.
+# Every field of a Release, with its default. Only spec.chart or spec.chartRef is
+# required. Durations are written like 30s, 5m or 1h. ConfigMaps and Secrets
+# are read from the namespace of the Release.
 apiVersion: nelm.werf.io/v1alpha1
 kind: Release
 metadata:
+  # Also the name of the Nelm release, so the chart sees it as .Release.Name.
   name: myapp
-  namespace: production
+  namespace: default
 spec:
-  # --- Chart source (exactly one of chart or chartRef must be set) ---
+  # Namespace to deploy to. Nelm creates it if needed and stores the release
+  # history there. Default: the namespace of the Release.
+  targetNamespace: myapp
+  # How often to check for drift and redeploy. Also the default interval of
+  # the chart source.
+  interval: 1m
+  # Timeout of install, rollback and uninstall, unless set for them below.
+  timeout: 30m
+  # Stop reconciling the release.
+  suspend: false
 
-  # Option 1: Inline chart source. Specify EXACTLY ONE of: repo | git | oci | bucket.
+  # Chart source declared inline: exactly one of repo, oci, git and bucket.
+  # The operator creates Flux source objects for it in the namespace of the
+  # Release, so the fields work as in the Flux source API:
+  # https://fluxcd.io/flux/components/source/
+  # Secrets in *From fields must be in the namespace of the Release.
   chart:
-    # repo: Helm Chart from a Helm repository (HTTP/S or OCI).
+    # A Helm repository, or an OCI registry if the url starts with oci://.
     repo:
-      url: https://stefanprodan.github.io/podinfo  # ^(http|https|oci)://
-      name: podinfo                 # chart name in the repository
-      version: "6.7.1"              # semver expression; latest when omitted
-      interval: 10m                 # repository poll interval (defaults to spec.interval)
+      url: https://stefanprodan.github.io/podinfo  # required
+      name: podinfo                 # required, chart name in the repository
+      version: "6.7.1"              # version or semver range, default: latest
+      interval: 1m                  # default: spec.interval
+      timeout: 60s
+      credentialsFrom:              # Secret with username and password
+        name: repo-credentials
+      certificateFrom:              # Secret with ca.crt and/or tls.crt and tls.key
+        name: repo-tls
+      passCredentials: false        # send credentials to hosts other than url too
+      insecure: false               # allow plain HTTP to an OCI registry
+      # verify:                     # verify the chart signature, OCI registries only
+      #   provider: cosign          # cosign or notation
+      #   secretRef:
+      #     name: cosign-public-keys
+      # Not supported yet: use values and valuesFrom instead.
+      # valuesFiles: [values.yaml, values-prod.yaml]
+      # ignoreMissingValuesFiles: false
 
-    # git: Helm Chart from a Git repository.
-    # git:
-    #   url: https://github.com/stefanprodan/podinfo  # ^(http|https|ssh)://
-    #   path: ./charts/podinfo      # path to the chart in the repo
-    #   branch: master              # one of branch | tag | semver | commit | ref
-    #   provider: generic           # generic | azure | github (default: generic)
-    #   interval: 10m
-
-    # oci: Helm Chart from an OCI registry.
+    # A chart stored as an OCI artifact.
     # oci:
-    #   url: oci://ghcr.io/stefanprodan/charts/podinfo  # ^oci://
-    #   tag: "6.7.1"                # one of tag | semver | digest
-    #   provider: generic           # generic | aws | azure | gcp (default: generic)
-    #   interval: 10m
+    #   url: oci://ghcr.io/stefanprodan/charts/podinfo  # required
+    #   tag: "6.7.1"                # exactly one of tag, semver and digest
+    #   # semver: "6.7.x"
+    #   # digest: sha256:...
+    #   semverFilter: ""            # regex to filter the tags matched by semver
+    #   interval: 1m                # default: spec.interval
+    #   timeout: 60s
+    #   provider: generic           # generic, aws, azure or gcp
+    #   serviceAccountName: ""      # ServiceAccount to authenticate with
+    #   credentialsFrom:            # Secret of type kubernetes.io/dockerconfigjson
+    #     name: registry-credentials
+    #   certificateFrom:
+    #     name: registry-tls
+    #   proxySettingsFrom:          # Secret with address, username and password
+    #     name: proxy
+    #   insecure: false             # allow plain HTTP
+    #   ignore: ""                  # files to exclude, in .gitignore format
+    #   layerSelector:              # default: the first layer, extracted
+    #     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    #     operation: copy           # extract or copy
+    #   verify:                     # verify the artifact signature
+    #     provider: cosign          # cosign or notation
+    #     secretRef:
+    #       name: cosign-public-keys
 
-    # bucket: Helm Chart from an S3-compatible bucket.
+    # A chart in a Git repository.
+    # git:
+    #   url: https://github.com/stefanprodan/podinfo  # required, http(s):// or ssh://
+    #   path: ./charts/podinfo      # required, path to the chart
+    #   branch: master              # exactly one of branch, tag, semver, commit and ref
+    #   # tag: 6.7.1
+    #   # semver: 6.7.x
+    #   # commit: 0123abcd...
+    #   # ref: refs/heads/master
+    #   interval: 1m                # default: spec.interval
+    #   timeout: 60s
+    #   provider: generic           # generic, azure or github
+    #   serviceAccountName: ""      # for workload identity with the azure provider
+    #   credentialsFrom:            # Secret with username and password, bearerToken,
+    #     name: git-credentials     # or identity and known_hosts for SSH
+    #   proxySettingsFrom:
+    #     name: proxy
+    #   submodules: false           # clone submodules too
+    #   sparseCheckout: []          # directories to check out, default: all
+    #   ignore: ""                  # files to exclude, in .gitignore format
+    #   verify:                     # verify the commit or tag signature
+    #     mode: HEAD                # HEAD, Tag or TagAndHEAD
+    #     secretRef:
+    #       name: pgp-public-keys
+    #   include:                    # other GitRepository objects to include
+    #     - repository:
+    #         name: shared-charts
+    #       fromPath: charts
+    #       toPath: shared
+    #   # Build a new chart when its version changes (ChartVersion) or on every
+    #   # new commit (Revision).
+    #   reconcileStrategy: ChartVersion
+    #   # Not supported yet: use values and valuesFrom instead.
+    #   # valuesFiles: [values.yaml, values-prod.yaml]
+    #   # ignoreMissingValuesFiles: false
+
+    # A chart in an S3-compatible bucket.
     # bucket:
-    #   endpoint: minio.example.com # object storage address
-    #   bucketName: charts          # bucket name
-    #   path: ./podinfo             # path to the chart in the bucket
-    #   provider: generic           # generic | aws | gcp | azure (default: generic)
-    #   region: us-east-1           # optional
-    #   interval: 10m               # required
+    #   endpoint: minio.example.com # required
+    #   bucketName: charts          # required
+    #   path: ./podinfo             # required, path to the chart
+    #   interval: 1m                # required
+    #   timeout: 60s
+    #   provider: generic           # generic (any S3-compatible), aws, gcp or azure
+    #   region: us-east-1
+    #   prefix: ""                  # prefix to filter the files by
+    #   serviceAccountName: ""      # for workload identity, not with generic
+    #   credentialsFrom:            # Secret with accesskey and secretkey for generic
+    #     name: bucket-credentials
+    #   certificateFrom:
+    #     name: bucket-tls
+    #   proxySettingsFrom:
+    #     name: proxy
+    #   insecure: false             # allow plain HTTP
+    #   ignore: ""                  # files to exclude, in .gitignore format
+    #   sts:                        # Security Token Service for temporary credentials
+    #     provider: aws             # aws, or ldap with the generic provider
+    #     endpoint: https://sts.amazonaws.com
+    #   reconcileStrategy: ChartVersion  # ChartVersion or Revision
+    #   # Not supported yet: use values and valuesFrom instead.
+    #   # valuesFiles: [values.yaml, values-prod.yaml]
+    #   # ignoreMissingValuesFiles: false
 
-  # Option 2: Reference to a pre-existing source object (mutually exclusive with chart).
+  # Instead of chart: a Flux source object that you manage yourself.
   # chartRef:
-  #   kind: HelmChart              # HelmChart | OCIRepository
-  #   name: my-existing-chart
-  #   namespace: flux-system       # optional, defaults to Release namespace
+  #   kind: HelmChart               # required, HelmChart or OCIRepository
+  #   name: my-chart                # required
+  #   namespace: flux-system        # default: the namespace of the Release
 
-  # --- Target ---
-  targetNamespace: myapp-prod       # namespace to deploy into (defaults to metadata.namespace)
-  interval: 5m                      # drift reconciliation interval
-  timeout: 30m                      # global timeout (overridable per action below)
-  suspend: false                    # skip reconciliation when true
+  # Values, merged in this order, later ones win: values.yaml of the chart,
+  # values, then valuesFrom.
+  values:
+    replicaCount: 2
+  valuesFrom:
+    - kind: ConfigMap               # required, ConfigMap or Secret
+      name: myapp-values            # required
+      dataKey: values.yaml          # key holding the values file
+      optional: false               # skip it instead of failing if missing
+  noDefaultValues: false            # ignore values.yaml of the chart
+  # key=json pairs to set in the root template context $. Meant for tools that
+  # generate Release objects; use values otherwise.
+  setRootContextJSON:
+    - 'environment="production"'
 
-  # --- Values ---
-  values:                           # inline values (any YAML)
-    replicaCount: 3
-    image:
-      repository: myregistry.io/myapp
-      tag: "2.1.0"
-    ingress:
-      enabled: true
-      hosts:
-        - host: myapp.example.com
-          paths:
-            - path: /
-              pathType: Prefix
-
-  valuesFrom:                       # values from ConfigMaps/Secrets (merged in order)
-    - kind: ConfigMap
-      name: myapp-values
-      dataKey: values.yaml          # key in the ConfigMap/Secret data (default: values.yaml)
-      optional: false               # fail if missing (default: false)
+  # Nelm encrypted values, decrypted with the key from secretKeyFrom.
+  secretKeyFrom:
+    kind: Secret
+    name: myapp-secret-key          # required
+    dataKey: key
+  secretValuesFrom:                 # same fields as valuesFrom
     - kind: Secret
-      name: myapp-db-credentials
-      dataKey: db-values.yaml
-      optional: true                # skip silently if missing
+      name: myapp-secret-values
+      dataKey: values.yaml
+  noDefaultSecretValues: false      # ignore secret-values.yaml of the chart
 
-  noDefaultValues: false            # disable chart's default values (default: false)
+  # ServiceAccount in the target namespace to deploy as. Default: the
+  # operator's --default-service-account, otherwise the operator's own
+  # permissions.
+  serviceAccountName: myapp-deployer
 
-  setRootContextJSON:               # JSON patches applied to root values context
-    - '{"global.environment": "production"}'
-
-  # --- Secret values (encrypted) ---
-  secretKeyFrom:                    # decryption key for encrypted values
-    kind: Secret                    # always Secret
-    name: myapp-secret-key
-    dataKey: key                    # key in the Secret data (default: key)
-
-  secretValuesFrom:                 # encrypted values files
-    - kind: Secret
-      name: myapp-encrypted-values
-      dataKey: secret-values.yaml
-      optional: false
-
-  noDefaultSecretValues: false      # disable chart's default secret values (default: false)
-
-  # --- Install/upgrade configuration ---
   install:
-    timeout: 15m                    # overrides spec.timeout for install
-    autoRollback: true              # rollback to previous revision on failure
-    retries: 3                      # retry failed installs up to N times before stalling
-    noInstallCRDs: false            # skip installing standalone CRDs from chart (default: false)
-    deletePropagation: Background   # Background | Foreground | Orphan
-    noForceAdoption: false          # disable adopting existing resources (default: false)
-    noRemoveManualChanges: false    # preserve manual changes to managed resources (default: false)
-    noDefaultPatches: false         # ignore chart-shipped patches.yaml (spec.renderPatches/spec.diffPatches still apply)
-    templatesAllowDNS: false        # allow DNS lookups in chart templates
-
-  # --- Rollback configuration ---
+    timeout: 30m                    # default: spec.timeout
+    retries: 0                      # retries of a failed reconcile before the Release stalls
+    # Once the retries of a failed install or upgrade are exhausted, roll back
+    # to the last successful revision.
+    autoRollback: false
+    noInstallCRDs: false            # skip the CRDs from crds/ of the chart
+    templatesAllowDNS: false        # allow DNS lookups in templates
+    deletePropagation: Background   # Background, Foreground or Orphan
+    noRemoveManualChanges: false    # keep fields added with kubectl edit
+    noForceAdoption: false          # fail instead of adopting resources of another release
+    noDefaultPatches: false         # ignore patches.yaml of the chart and its subcharts
   rollback:
-    timeout: 10m                    # overrides spec.timeout for rollback
+    timeout: 30m                    # default: spec.timeout
     deletePropagation: Background
+    noRemoveManualChanges: false
     noForceAdoption: false
-    noRemoveManualChanges: false
-    noDefaultPatches: false         # ignore chart-shipped patches.yaml during rollback
-
-  # --- Uninstall configuration ---
+    noDefaultPatches: false
   uninstall:
-    timeout: 10m                    # overrides spec.timeout for uninstall
-    deleteNamespace: false          # delete the target namespace on uninstall
+    timeout: 30m                    # default: spec.timeout
+    # Delete the target namespace after uninstall, with everything in it. Do
+    # not use it if the Release itself is in that namespace.
+    deleteNamespace: false
     deletePropagation: Background
     noRemoveManualChanges: false
-    noDefaultPatches: false         # ignore chart-shipped patches.yaml during uninstall
+    noDefaultPatches: false
 
-  # --- Resource labels and annotations ---
-  extraAnnotations:                 # added to all deployed resources
-    team: platform
-  extraLabels:                      # added to all deployed resources
-    app.kubernetes.io/part-of: myapp
-  runtimeAnnotations:               # added at runtime (not stored in release)
-    deploy.werf.io/trigger: "true"
-  runtimeLabels:                    # added at runtime (not stored in release)
-    deploy.werf.io/env: production
-  releaseInfoAnnotations:           # added to the Helm release secret
-    release-owner: platform-team
-  releaseLabels:                    # added to the Helm release secret
-    managed-by: nelm-operator
-  appVersion: "2.1.0"              # override chart's appVersion
+  extraAnnotations: {}              # added to all deployed resources
+  extraLabels: {}
+  runtimeAnnotations: {}            # same, but changing them never triggers an update
+  runtimeLabels: {}
+  releaseInfoAnnotations: {}        # added to the release metadata
+  releaseLabels: {}                 # added to the objects storing the release history
+  appVersion: ""                    # override appVersion of Chart.yaml
 
-  # --- Render patches (change what is deployed) ---
-  # renderPatches are applied to the resources rendered from the chart, right
-  # after rendering, so they DO change what is stored in the release and applied
-  # to the cluster. Rules run in order, each on the previous one's output.
+  # jq patches applied to rendered resources before they are deployed, in
+  # order. Rollback and uninstall do not apply them.
   renderPatches:
-  - match:
-      kinds: [Deployment]           # bare value = exact match
-      names: ["/web-.*/"]           # /regex/ = anchored full-match regexp
-    type: jq                        # only "jq" is supported (default)
-    patch: |                        # jq sees raw K8s JSON, must return one object
-      .spec.template.spec.priorityClassName = "production-high"
-
-  # --- Diff patches (drift-detection only) ---
-  # diffPatches ONLY affect drift detection during self-healing reconciliation:
-  # the jq program is applied identically to the live and the desired object
-  # before they are compared, so normalized-away fields never trigger a rollout.
-  # They NEVER change what is rendered or applied to the cluster.
+    - match:                        # default: all resources
+        kinds: [Deployment]         # exact values, case-insensitive for kinds,
+        names: ["/web-.*/"]         # groups and versions, or /anchored regexes/
+        # namespaces, groups, versions: same
+        # charts: [cache]           # subchart alias, or path like myapp/charts/cache
+        # labels: {tier: backend}   # all must match
+        # annotations: {}
+      type: jq                      # only jq
+      patch: .spec.template.spec.priorityClassName = "high"  # must return one object
+  # jq patches applied to both the live and the desired resource before they
+  # are compared, so the patched fields never trigger an update. They do not
+  # change what is deployed. Same fields as renderPatches.
   diffPatches:
-  - match:
-      kinds: [Deployment]           # bare value = exact match
-      names: ["/web-.*/"]           # /regex/ = anchored full-match regexp
-      charts: [cache]               # matches the chart ALIAS, not the upstream name
-      labels:                       # exact key=value, all must match
-        tier: backend
-    type: jq                        # only "jq" is supported (default)
-    patch: |                        # jq sees raw K8s JSON, must return one object
-      del(.spec.replicas)
+    - match:
+        kinds: [Deployment]
+      patch: del(.spec.replicas)
 
-  # --- Tracking ---
+  # Waiting for deployed resources.
   tracking:
-    readinessTimeout: 5m            # wait for resources to become ready
-    creationTimeout: 3m             # wait for resources to be created
-    deletionTimeout: 3m             # wait for resources to be deleted
-    podLogs: false                  # stream pod logs during tracking (noisy in operator mode)
-    finalTracking: false            # final tracking pass after install
+    readinessTimeout: 5m            # default: none
+    creationTimeout: 5m             # default: none
+    deletionTimeout: 5m             # default: none
+    # Wait for resources nothing else depends on, during rollback and
+    # uninstall. Default: on without the tracking block, off with it. Install
+    # and upgrade always wait for them.
+    finalTracking: false
+    podLogs: false                  # has no effect yet
 
-  # --- Provenance ---
-  provenance:
-    strategy: never                 # never | digest | signature
-    keyringFrom:                    # PGP keyring for signature verification
-      kind: Secret
-      name: chart-keyring
-      dataKey: pubring.gpg
-
-  # --- Release storage ---
-  releaseStorage:
-    historyLimit: 10                # max number of release revisions to keep
-
-  # --- Resource validation (kubeconform) ---
+  # Validating rendered resources against Kubernetes JSON schemas.
   validation:
-    noResourceValidation: false     # disable resource schema validation (default: false)
-    noValuesSchemaValidation: false # disable validating values against values.schema.json (default: false)
-    skip:                           # skip validation for specific resources
-      - CustomThing
-    extraSchemas:                   # additional schema sources (appended to defaults)
-      - https://my-schemas.example.com/{{ .NormalizedKubeVersion }}/{{ .ResourceKind }}.json
-    schemaCacheLifetime: 48h        # how long to cache downloaded schemas
+    noResourceValidation: false
+    noValuesSchemaValidation: false # skip validating values against values.schema.json
+    skip:                           # keys: group, version, kind, name, namespace
+      - kind=CustomThing
+    extraSchemas:                   # URL templates or absolute paths, preferred over embedded schemas
+      - https://schemas.example.com/{{ .NormalizedKubernetesVersion }}/{{ .ResourceKind }}.json
+    # Default: 48h, but nothing is cached when the validation block is set
+    # without it.
+    schemaCacheLifetime: 48h
 
-  # --- TypeScript ---
+  releaseStorage:
+    historyLimit: 10                # revisions to keep; without releaseStorage, all are kept
+
   typescript:
-    ignoreBundleJS: false           # ignore bundled JS in TypeScript chart templates
+    ignoreBundleJS: false           # has no effect: TypeScript charts are not rendered yet
+
+  # Has no effect yet. Use verify of the chart source to verify signatures.
+  # provenance:
+  #   strategy: never
+  #   keyringFrom:
+  #     name: chart-keyring
+  #     dataKey: key
