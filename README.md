@@ -14,13 +14,13 @@ source-controller.
 ## Install
 
 Get the [Nelm CLI](https://github.com/werf/nelm#install), then check whether the
-cluster already runs Flux:
+cluster already runs a Flux source-controller, for example as part of Flux:
 
 ```sh
-kubectl get crd gitrepositories.source.toolkit.fluxcd.io
+kubectl get deployments --all-namespaces | grep source-controller
 ```
 
-### Cluster without Flux
+### Cluster without a source-controller
 
 Install the operator together with its own source-controller:
 
@@ -32,15 +32,15 @@ nelm release install -n nelm-operator -r nelm-operator \
 
 Run the same command again to upgrade.
 
-### Cluster with Flux
+### Cluster with a source-controller
 
 > [!WARNING]
-> Do not set `installFluxSourceController=true` next to an existing Flux. A
-> second source-controller would reconcile the same objects as yours, and its
-> CRDs would overwrite the CRDs of your Flux with a possibly older version.
+> Do not set `installFluxSourceController=true` next to an existing
+> source-controller. A second one would reconcile the same objects as yours, and
+> its CRDs would overwrite yours with a possibly older version.
 
-The operator requires **Flux 2.6 or newer**. Check that this prints `v1` among
-the versions:
+The operator requires the source-controller of **Flux 2.6 or newer**. Check
+that this prints `v1` among the versions:
 
 ```sh
 kubectl get crd ocirepositories.source.toolkit.fluxcd.io \
@@ -117,19 +117,6 @@ The Nelm release is named after the `Release` object, so the chart sees
 `podinfo` as `.Release.Name`.
 
 All fields are described in the [Reference](#reference).
-
-## Key features
-
-* Charts from Helm repositories, OCI registries, Git repositories and buckets,
-  declared inline in `spec.chart`, or your own `HelmChart` or `OCIRepository`
-  referenced in `spec.chartRef`;
-* values from `spec.values`, ConfigMaps and Secrets, plus Nelm encrypted values
-  in `spec.secretValuesFrom`;
-* render and diff patches with jq in `spec.renderPatches` and `spec.diffPatches`;
-* timeouts, retries and auto-rollback of failed installs;
-* impersonation of a ServiceAccount set in `spec.serviceAccountName`;
-* everything Nelm does: CRD upgrades, advanced resource ordering and lifecycle,
-  readiness tracking, and hundreds of fixed Helm bugs.
 
 ## Argo CD
 
