@@ -162,217 +162,276 @@ make manifests generate  # after changing api/v1alpha1
 
 ## Reference
 
-All fields of a `Release` are optional unless marked required. Durations are
-written like `30s`, `5m` or `1h`. ConfigMaps and Secrets referenced by a
-`Release` are read from the namespace of the `Release`.
-
-### `spec`
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `chart` | | Chart source declared inline, see [Chart sources](#chart-sources). Exactly one of `chart` and `chartRef` is required. |
-| `chartRef` | | Existing chart source, see [`spec.chartRef`](#specchartref). |
-| `targetNamespace` | namespace of the `Release` | Namespace to deploy the release to. Nelm creates it if needed. The release history is stored there too. |
-| `interval` | `1m` | How often the release is checked for drift and redeployed if needed. Also the default `interval` of inline chart sources. |
-| `timeout` | `30m` | Timeout of install, rollback and uninstall, unless `install.timeout`, `rollback.timeout` or `uninstall.timeout` is set. |
-| `suspend` | `false` | Stop reconciling the release. |
-| `values` | | Values as inline YAML. |
-| `valuesFrom` | | Values files from ConfigMaps and Secrets, see [Values references](#values-references). Merged after `values`, in order, so later ones win. |
-| `noDefaultValues` | `false` | Ignore `values.yaml` of the chart. |
-| `setRootContextJSON` | | `key=json` pairs to set in the root template context `$`. Meant for tools that generate `Release` objects; use `values` otherwise. |
-| `secretKeyFrom` | | Key to decrypt Nelm encrypted values: `kind: Secret`, `name` and `dataKey` (default `key`). |
-| `secretValuesFrom` | | Encrypted values files from ConfigMaps and Secrets, see [Values references](#values-references). |
-| `noDefaultSecretValues` | `false` | Ignore `secret-values.yaml` of the chart. |
-| `serviceAccountName` | operator's `defaultServiceAccount` | ServiceAccount in the target namespace to deploy as. Without it, the operator deploys with its own permissions. |
-| `install`, `rollback`, `uninstall` | | See [Install, rollback and uninstall](#install-rollback-and-uninstall). |
-| `extraAnnotations`, `extraLabels` | | Annotations and labels to add to all deployed resources. |
-| `runtimeAnnotations`, `runtimeLabels` | | Annotations and labels to add to all deployed resources, which never trigger an update when changed. |
-| `releaseInfoAnnotations` | | Annotations to add to the release metadata. |
-| `releaseLabels` | | Labels to add to the objects the release history is stored in. |
-| `appVersion` | | Override `appVersion` of `Chart.yaml`. |
-| `renderPatches` | | jq patches that change rendered resources before they are deployed, see [Patches](#patches). |
-| `diffPatches` | | jq patches applied to both the live and the desired resource before they are compared, so the patched fields never trigger an update. They do not change what is deployed. See [Patches](#patches). |
-| `tracking` | | See [`spec.tracking`](#spectracking). |
-| `validation` | | See [`spec.validation`](#specvalidation). |
-| `releaseStorage.historyLimit` | `10` | Number of release revisions to keep. Without `releaseStorage`, all revisions are kept. |
-| `typescript.ignoreBundleJS` | `false` | Has no effect: the operator does not render TypeScript charts yet. |
-| `provenance` | | Has no effect yet. Use `verify` of the [chart source](#chart-sources) to verify signatures. |
-
-### Chart sources
-
-`spec.chart` takes exactly one of `repo`, `oci`, `git` and `bucket`. The
-operator turns it into Flux source objects in the namespace of the `Release`, so
-the fields work as described in the [Flux source API](https://fluxcd.io/flux/components/source/),
-including the structure of `verify`, `include`, `layerSelector` and `sts`.
-Secrets for credentials, certificates and proxy settings are referenced by
-`name` and must be in the namespace of the `Release`.
-
-Fields of all four sources:
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `interval` | `spec.interval` | How often to check the source for a new chart. Required for `bucket`. |
-| `timeout` | `60s` | Timeout of fetching from the source. |
-| `credentialsFrom.name` | | Secret with credentials. |
-
-`repo`, a Helm repository, or an OCI registry if `url` starts with `oci://`:
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `url` | | Required. Repository URL: `http://`, `https://` or `oci://`. |
-| `name` | | Required. Chart name in the repository. |
-| `version` | latest | Chart version or semver range. |
-| `valuesFiles`, `ignoreMissingValuesFiles` | | Not supported yet. Use `spec.values` and `spec.valuesFrom` instead. |
-| `certificateFrom.name` | | Secret with `ca.crt`, or `tls.crt` and `tls.key`, or all three, for TLS. |
-| `passCredentials` | `false` | Send credentials to hosts other than `url` too. |
-| `insecure` | `false` | Allow plain HTTP for an OCI registry. |
-| `verify` | | Verify the chart signature, for OCI registries only. |
-
-`oci`, a chart stored as an OCI artifact:
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `url` | | Required. Artifact URL, starting with `oci://`. |
-| `tag`, `semver`, `digest` | | Exactly one is required: tag, semver range of tags, or `sha256:` digest. |
-| `semverFilter` | | Regex to filter the tags matched by `semver`. |
-| `provider` | `generic` | Authentication provider: `generic`, `aws`, `azure` or `gcp`. |
-| `serviceAccountName` | | ServiceAccount whose image pull secrets or workload identity to authenticate with. |
-| `certificateFrom.name`, `proxySettingsFrom.name` | | Secrets with TLS certificates and proxy settings. |
-| `insecure` | `false` | Allow plain HTTP. |
-| `ignore` | | Files to exclude, in `.gitignore` format. |
-| `layerSelector` | first layer | Layer of the artifact to extract. |
-| `verify` | | Verify the artifact signature. |
-
-`git`, a chart in a Git repository:
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `url` | | Required. Repository URL: `http://`, `https://` or `ssh://`. |
-| `path` | | Required. Path to the chart in the repository. |
-| `branch`, `tag`, `semver`, `commit`, `ref` | | Exactly one is required: what to check out. |
-| `valuesFiles`, `ignoreMissingValuesFiles` | | As for `repo`. |
-| `provider` | `generic` | Authentication provider: `generic`, `azure` or `github`. |
-| `serviceAccountName` | | ServiceAccount for workload identity, with the `azure` provider. |
-| `proxySettingsFrom.name` | | Secret with proxy settings. |
-| `submodules` | `false` | Clone submodules too. |
-| `sparseCheckout` | | Directories to check out instead of the whole repository. |
-| `ignore` | | Files to exclude, in `.gitignore` format. |
-| `verify` | | Verify the commit or tag signature. |
-| `include` | | Other `GitRepository` objects to include. |
-| `reconcileStrategy` | `ChartVersion` | Build a new chart when its `version` changes (`ChartVersion`) or on every new commit (`Revision`). |
-
-`bucket`, a chart in an S3-compatible bucket:
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `endpoint` | | Required. Object storage address. |
-| `bucketName` | | Required. Bucket name. |
-| `path` | | Required. Path to the chart in the bucket. |
-| `valuesFiles`, `ignoreMissingValuesFiles`, `reconcileStrategy` | | As for `git`. |
-| `provider` | `generic` | `generic` for any S3-compatible storage, or `aws`, `gcp`, `azure`. |
-| `region`, `prefix` | | Bucket region, and prefix to filter the files by. |
-| `serviceAccountName` | | ServiceAccount for workload identity, with a provider other than `generic`. |
-| `certificateFrom.name`, `proxySettingsFrom.name` | | Secrets with TLS certificates and proxy settings. |
-| `insecure` | `false` | Allow plain HTTP. |
-| `ignore` | | Files to exclude, in `.gitignore` format. |
-| `sts` | | Security Token Service to get temporary credentials from. |
-
-### `spec.chartRef`
-
-Use a Flux source object that you manage yourself.
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `kind` | | Required. `HelmChart` or `OCIRepository`. |
-| `name` | | Required. Object name. |
-| `namespace` | namespace of the `Release` | Object namespace. |
-| `apiVersion` | | Ignored. |
-
-### Values references
-
-Items of `valuesFrom` and `secretValuesFrom`:
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `kind` | | Required. `ConfigMap` or `Secret`. |
-| `name` | | Required. Object name. |
-| `dataKey` | `values.yaml` | Key holding the values file. |
-| `optional` | `false` | Skip the item if the object or key is missing, instead of failing. |
-
-### Install, rollback and uninstall
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `install.timeout` | `spec.timeout` | Timeout of install and upgrade. |
-| `install.retries` | `0` | Retries of a failed reconcile before the `Release` is marked stalled. |
-| `install.autoRollback` | `false` | Once the retries of a failed install or upgrade are exhausted, roll back to the last successful revision. |
-| `install.noInstallCRDs` | `false` | Skip the CRDs from the `crds/` directory of the chart. |
-| `install.templatesAllowDNS` | `false` | Allow DNS lookups in templates. |
-| `rollback.timeout` | `spec.timeout` | Timeout of a rollback. |
-| `uninstall.timeout` | `spec.timeout` | Timeout of an uninstall. |
-| `uninstall.deleteNamespace` | `false` | Delete the target namespace after uninstall, with everything in it. Do not use it if the `Release` itself is in that namespace. |
-
-Shared by `install`, `rollback` and `uninstall`:
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `deletePropagation` | `Background` | Propagation policy of deletions: `Background`, `Foreground` or `Orphan`. |
-| `noRemoveManualChanges` | `false` | Keep fields added with `kubectl edit` that are absent from the chart. |
-| `noForceAdoption` | `false` | Fail instead of adopting resources that belong to another release. Not available in `uninstall`. |
-| `noDefaultPatches` | `false` | Ignore `patches.yaml` of the chart and its subcharts. `renderPatches` and `diffPatches` still apply. |
-
-### Patches
-
-Items of `renderPatches` and `diffPatches`, applied in order. Rollback and uninstall
-apply only `diffPatches`.
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `patch` | | Required. jq program that takes a resource and returns exactly one object. |
-| `type` | `jq` | Patch type. Only `jq` is supported. |
-| `match` | all resources | Resources to patch, see below. |
-
-`match` takes `kinds`, `names`, `namespaces`, `groups`, `versions`, `charts`,
-`labels` and `annotations`. A resource matches if it matches every field that is
-set, and a list field matches if any of its items does. List items are exact
-values, case-insensitive for `kinds`, `groups` and `versions`, or anchored
-regexes when wrapped in slashes, like `/web-.*/`. `charts`
-matches the subchart alias or its path, like `myapp/charts/cache`. `labels` and
-`annotations` must all match.
+Every field of a `Release`, with its default. The same file is
+[`config/samples/nelm_v1alpha1_release_full.yaml`](config/samples/nelm_v1alpha1_release_full.yaml).
 
 ```yaml
-renderPatches:
-  - match:
-      kinds: [Deployment]
-      names: ["/web-.*/"]
-    patch: .spec.template.spec.priorityClassName = "high"
-diffPatches:
-  - match:
-      kinds: [Deployment]
-    patch: del(.spec.replicas)
+# Every field of a Release, with its default. Only spec.chart or spec.chartRef is
+# required. Durations are written like 30s, 5m or 1h. ConfigMaps and Secrets
+# are read from the namespace of the Release.
+apiVersion: nelm.werf.io/v1alpha1
+kind: Release
+metadata:
+  # Also the name of the Nelm release, so the chart sees it as .Release.Name.
+  name: myapp
+  namespace: default
+spec:
+  # Namespace to deploy to. Nelm creates it if needed and stores the release
+  # history there. Default: the namespace of the Release.
+  targetNamespace: myapp
+  # How often to check for drift and redeploy. Also the default interval of
+  # the chart source.
+  interval: 1m
+  # Timeout of install, rollback and uninstall, unless set for them below.
+  timeout: 30m
+  # Stop reconciling the release.
+  suspend: false
+
+  # Chart source declared inline: exactly one of repo, oci, git and bucket.
+  # The operator creates Flux source objects for it in the namespace of the
+  # Release, so the fields work as in the Flux source API:
+  # https://fluxcd.io/flux/components/source/
+  # Secrets in *From fields must be in the namespace of the Release.
+  chart:
+    # A Helm repository, or an OCI registry if the url starts with oci://.
+    repo:
+      url: https://stefanprodan.github.io/podinfo  # required
+      name: podinfo                 # required, chart name in the repository
+      version: "6.7.1"              # version or semver range, default: latest
+      interval: 1m                  # default: spec.interval
+      timeout: 60s
+      credentialsFrom:              # Secret with username and password
+        name: repo-credentials
+      certificateFrom:              # Secret with ca.crt and/or tls.crt and tls.key
+        name: repo-tls
+      passCredentials: false        # send credentials to hosts other than url too
+      insecure: false               # allow plain HTTP to an OCI registry
+      # verify:                     # verify the chart signature, OCI registries only
+      #   provider: cosign          # cosign or notation
+      #   secretRef:
+      #     name: cosign-public-keys
+      # Not supported yet: use values and valuesFrom instead.
+      # valuesFiles: [values.yaml, values-prod.yaml]
+      # ignoreMissingValuesFiles: false
+
+    # A chart stored as an OCI artifact.
+    # oci:
+    #   url: oci://ghcr.io/stefanprodan/charts/podinfo  # required
+    #   tag: "6.7.1"                # exactly one of tag, semver and digest
+    #   # semver: "6.7.x"
+    #   # digest: sha256:...
+    #   semverFilter: ""            # regex to filter the tags matched by semver
+    #   interval: 1m                # default: spec.interval
+    #   timeout: 60s
+    #   provider: generic           # generic, aws, azure or gcp
+    #   serviceAccountName: ""      # ServiceAccount to authenticate with
+    #   credentialsFrom:            # Secret of type kubernetes.io/dockerconfigjson
+    #     name: registry-credentials
+    #   certificateFrom:
+    #     name: registry-tls
+    #   proxySettingsFrom:          # Secret with address, username and password
+    #     name: proxy
+    #   insecure: false             # allow plain HTTP
+    #   ignore: ""                  # files to exclude, in .gitignore format
+    #   layerSelector:              # default: the first layer, extracted
+    #     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    #     operation: copy           # extract or copy
+    #   verify:                     # verify the artifact signature
+    #     provider: cosign          # cosign or notation
+    #     secretRef:
+    #       name: cosign-public-keys
+
+    # A chart in a Git repository.
+    # git:
+    #   url: https://github.com/stefanprodan/podinfo  # required, http(s):// or ssh://
+    #   path: ./charts/podinfo      # required, path to the chart
+    #   branch: master              # exactly one of branch, tag, semver, commit and ref
+    #   # tag: 6.7.1
+    #   # semver: 6.7.x
+    #   # commit: 0123abcd...
+    #   # ref: refs/heads/master
+    #   interval: 1m                # default: spec.interval
+    #   timeout: 60s
+    #   provider: generic           # generic, azure or github
+    #   serviceAccountName: ""      # for workload identity with the azure provider
+    #   credentialsFrom:            # Secret with username and password, bearerToken,
+    #     name: git-credentials     # or identity and known_hosts for SSH
+    #   proxySettingsFrom:
+    #     name: proxy
+    #   submodules: false           # clone submodules too
+    #   sparseCheckout: []          # directories to check out, default: all
+    #   ignore: ""                  # files to exclude, in .gitignore format
+    #   verify:                     # verify the commit or tag signature
+    #     mode: HEAD                # HEAD, Tag or TagAndHEAD
+    #     secretRef:
+    #       name: pgp-public-keys
+    #   include:                    # other GitRepository objects to include
+    #     - repository:
+    #         name: shared-charts
+    #       fromPath: charts
+    #       toPath: shared
+    #   # Build a new chart when its version changes (ChartVersion) or on every
+    #   # new commit (Revision).
+    #   reconcileStrategy: ChartVersion
+    #   # Not supported yet: use values and valuesFrom instead.
+    #   # valuesFiles: [values.yaml, values-prod.yaml]
+    #   # ignoreMissingValuesFiles: false
+
+    # A chart in an S3-compatible bucket.
+    # bucket:
+    #   endpoint: minio.example.com # required
+    #   bucketName: charts          # required
+    #   path: ./podinfo             # required, path to the chart
+    #   interval: 1m                # required
+    #   timeout: 60s
+    #   provider: generic           # generic (any S3-compatible), aws, gcp or azure
+    #   region: us-east-1
+    #   prefix: ""                  # prefix to filter the files by
+    #   serviceAccountName: ""      # for workload identity, not with generic
+    #   credentialsFrom:            # Secret with accesskey and secretkey for generic
+    #     name: bucket-credentials
+    #   certificateFrom:
+    #     name: bucket-tls
+    #   proxySettingsFrom:
+    #     name: proxy
+    #   insecure: false             # allow plain HTTP
+    #   ignore: ""                  # files to exclude, in .gitignore format
+    #   sts:                        # Security Token Service for temporary credentials
+    #     provider: aws             # aws, or ldap with the generic provider
+    #     endpoint: https://sts.amazonaws.com
+    #   reconcileStrategy: ChartVersion  # ChartVersion or Revision
+    #   # Not supported yet: use values and valuesFrom instead.
+    #   # valuesFiles: [values.yaml, values-prod.yaml]
+    #   # ignoreMissingValuesFiles: false
+
+  # Instead of chart: a Flux source object that you manage yourself.
+  # chartRef:
+  #   kind: HelmChart               # required, HelmChart or OCIRepository
+  #   name: my-chart                # required
+  #   namespace: flux-system        # default: the namespace of the Release
+
+  # Values, merged in this order, later ones win: values.yaml of the chart,
+  # values, then valuesFrom.
+  values:
+    replicaCount: 2
+  valuesFrom:
+    - kind: ConfigMap               # required, ConfigMap or Secret
+      name: myapp-values            # required
+      dataKey: values.yaml          # key holding the values file
+      optional: false               # skip it instead of failing if missing
+  noDefaultValues: false            # ignore values.yaml of the chart
+  # key=json pairs to set in the root template context $. Meant for tools that
+  # generate Release objects; use values otherwise.
+  setRootContextJSON:
+    - 'environment="production"'
+
+  # Nelm encrypted values, decrypted with the key from secretKeyFrom.
+  secretKeyFrom:
+    kind: Secret
+    name: myapp-secret-key          # required
+    dataKey: key
+  secretValuesFrom:                 # same fields as valuesFrom
+    - kind: Secret
+      name: myapp-secret-values
+      dataKey: values.yaml
+  noDefaultSecretValues: false      # ignore secret-values.yaml of the chart
+
+  # ServiceAccount in the target namespace to deploy as. Default: the
+  # operator's --default-service-account, otherwise the operator's own
+  # permissions.
+  serviceAccountName: myapp-deployer
+
+  install:
+    timeout: 30m                    # default: spec.timeout
+    retries: 0                      # retries of a failed reconcile before the Release stalls
+    # Once the retries of a failed install or upgrade are exhausted, roll back
+    # to the last successful revision.
+    autoRollback: false
+    noInstallCRDs: false            # skip the CRDs from crds/ of the chart
+    templatesAllowDNS: false        # allow DNS lookups in templates
+    deletePropagation: Background   # Background, Foreground or Orphan
+    noRemoveManualChanges: false    # keep fields added with kubectl edit
+    noForceAdoption: false          # fail instead of adopting resources of another release
+    noDefaultPatches: false         # ignore patches.yaml of the chart and its subcharts
+  rollback:
+    timeout: 30m                    # default: spec.timeout
+    deletePropagation: Background
+    noRemoveManualChanges: false
+    noForceAdoption: false
+    noDefaultPatches: false
+  uninstall:
+    timeout: 30m                    # default: spec.timeout
+    # Delete the target namespace after uninstall, with everything in it. Do
+    # not use it if the Release itself is in that namespace.
+    deleteNamespace: false
+    deletePropagation: Background
+    noRemoveManualChanges: false
+    noDefaultPatches: false
+
+  extraAnnotations: {}              # added to all deployed resources
+  extraLabels: {}
+  runtimeAnnotations: {}            # same, but changing them never triggers an update
+  runtimeLabels: {}
+  releaseInfoAnnotations: {}        # added to the release metadata
+  releaseLabels: {}                 # added to the objects storing the release history
+  appVersion: ""                    # override appVersion of Chart.yaml
+
+  # jq patches applied to rendered resources before they are deployed, in
+  # order. Rollback and uninstall do not apply them.
+  renderPatches:
+    - match:                        # default: all resources
+        kinds: [Deployment]         # exact values, case-insensitive for kinds,
+        names: ["/web-.*/"]         # groups and versions, or /anchored regexes/
+        # namespaces, groups, versions: same
+        # charts: [cache]           # subchart alias, or path like myapp/charts/cache
+        # labels: {tier: backend}   # all must match
+        # annotations: {}
+      type: jq                      # only jq
+      patch: .spec.template.spec.priorityClassName = "high"  # must return one object
+  # jq patches applied to both the live and the desired resource before they
+  # are compared, so the patched fields never trigger an update. They do not
+  # change what is deployed. Same fields as renderPatches.
+  diffPatches:
+    - match:
+        kinds: [Deployment]
+      patch: del(.spec.replicas)
+
+  # Waiting for deployed resources.
+  tracking:
+    readinessTimeout: 5m            # default: none
+    creationTimeout: 5m             # default: none
+    deletionTimeout: 5m             # default: none
+    # Wait for resources nothing else depends on, during rollback and
+    # uninstall. Default: on without the tracking block, off with it. Install
+    # and upgrade always wait for them.
+    finalTracking: false
+    podLogs: false                  # has no effect yet
+
+  # Validating rendered resources against Kubernetes JSON schemas.
+  validation:
+    noResourceValidation: false
+    noValuesSchemaValidation: false # skip validating values against values.schema.json
+    skip:                           # keys: group, version, kind, name, namespace
+      - kind=CustomThing
+    extraSchemas:                   # URL templates or absolute paths, preferred over embedded schemas
+      - https://schemas.example.com/{{ .NormalizedKubernetesVersion }}/{{ .ResourceKind }}.json
+    # Default: 48h, but nothing is cached when the validation block is set
+    # without it.
+    schemaCacheLifetime: 48h
+
+  releaseStorage:
+    historyLimit: 10                # revisions to keep; without releaseStorage, all are kept
+
+  typescript:
+    ignoreBundleJS: false           # has no effect: TypeScript charts are not rendered yet
+
+  # Has no effect yet. Use verify of the chart source to verify signatures.
+  # provenance:
+  #   strategy: never
+  #   keyringFrom:
+  #     name: chart-keyring
+  #     dataKey: key
 ```
-
-### `spec.tracking`
-
-Nelm tracks deployed resources until they are ready.
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `readinessTimeout`, `creationTimeout`, `deletionTimeout` | none | How long to wait for a resource to become ready, to be created or to be deleted. |
-| `finalTracking` | | Wait for resources that nothing else depends on during rollback and uninstall: on without `tracking`, off with `tracking` unless set to `true`. Install and upgrade always wait for them. |
-| `podLogs` | `false` | Has no effect yet. |
-
-### `spec.validation`
-
-Nelm validates rendered resources against Kubernetes JSON schemas before deploying.
-
-| Field | Default | Description |
-| --- | --- | --- |
-| `noResourceValidation` | `false` | Skip resource validation. |
-| `noValuesSchemaValidation` | `false` | Skip validating values against `values.schema.json` of the chart. |
-| `skip` | | Resources not to validate, like `kind=Deployment,name=my-app`. Keys: `group`, `version`, `kind`, `name`, `namespace`. |
-| `extraSchemas` | | Extra schema sources, as URL templates or absolute paths, preferred over the embedded schemas. |
-| `schemaCacheLifetime` | `48h` | How long to cache downloaded schemas. With `validation` set, nothing is cached unless you set it. |
 
 ## License
 
