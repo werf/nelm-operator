@@ -864,7 +864,9 @@ func (r *ReleaseReconciler) buildValidationOptions(rel *nelmv1alpha1.Release) co
 	opts.NoValuesSchemaValidation = v.NoValuesSchemaValidation
 	opts.ValidationSkip = v.Skip
 	opts.ValidationExtraSchemas = v.ExtraSchemas
-	opts.ValidationSchemaCacheLifetime = v.SchemaCacheLifetime.Duration
+	if v.SchemaCacheLifetime.Duration > 0 {
+		opts.ValidationSchemaCacheLifetime = v.SchemaCacheLifetime.Duration
+	}
 
 	return opts
 }

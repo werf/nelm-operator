@@ -414,9 +414,7 @@ spec:
       - kind=CustomThing
     extraSchemas:                   # URL templates or absolute paths, preferred over embedded schemas
       - https://schemas.example.com/{{ .NormalizedKubernetesVersion }}/{{ .ResourceKind }}.json
-    # Default: 48h, but nothing is cached when the validation block is set
-    # without it.
-    schemaCacheLifetime: 48h
+    schemaCacheLifetime: 48h        # default: 48h
 
   releaseStorage:
     historyLimit: 10                # revisions to keep, 0 = all; default 10, also without releaseStorage
