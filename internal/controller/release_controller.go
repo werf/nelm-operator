@@ -621,6 +621,12 @@ func (r *ReleaseReconciler) reconcileDelete(ctx context.Context, rel *nelmv1alph
 		return fmt.Errorf("update uninstalling status: %w", err)
 	}
 
+	if timeout := rel.GetUninstallTimeout(); timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	releaseName := rel.Name
 	releaseNamespace := rel.GetReleaseNamespace()
 
@@ -684,11 +690,11 @@ func (r *ReleaseReconciler) uninstall(ctx context.Context, rel *nelmv1alpha1.Rel
 	// someone may hold the lock.
 	if nsTerminating {
 		var lockConfigMap corev1.ConfigMap
-		err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: releaseNamespace, Name: common.LockConfigMapName}, &lockConfigMap)
-		if client.IgnoreNotFound(err) != nil {
-			return fmt.Errorf("get release lock config map: %w", err)
+		lockErr := r.APIReader.Get(ctx, client.ObjectKey{Namespace: releaseNamespace, Name: common.LockConfigMapName}, &lockConfigMap)
+		if client.IgnoreNotFound(lockErr) != nil {
+			return fmt.Errorf("get release lock config map: %w", lockErr)
 		}
-		uninstallOpts.LegacyNoReleaseLock = apierrors.IsNotFound(err)
+		uninstallOpts.LegacyNoReleaseLock = apierrors.IsNotFound(lockErr)
 	}
 
 	if err := action.ReleaseUninstall(ctx, releaseName, releaseNamespace, uninstallOpts); err != nil {
@@ -701,12 +707,6 @@ func (r *ReleaseReconciler) uninstall(ctx context.Context, rel *nelmv1alpha1.Rel
 // deleteReleaseNamespace deletes the namespace the way Nelm does with
 // DeleteReleaseNamespace, as the same user, but does not wait for it to go away.
 func (r *ReleaseReconciler) deleteReleaseNamespace(ctx context.Context, rel *nelmv1alpha1.Release, namespace string) error {
-	if timeout := rel.GetUninstallTimeout(); timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-
 	kubeConfig, err := kube.NewKubeConfig(ctx, kube.KubeConfigOptions{
 		KubeConnectionOptions: r.buildKubeConnectionOptions(rel),
 		KubeContextNamespace:  namespace,
