@@ -5,9 +5,6 @@ metadata:
 spec:
   chart:
     oci:
-      layerSelector:
-        mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
-        operation: extract
       provider: generic
       semver: 6.7.1
       timeout: 60s
