@@ -799,7 +799,7 @@ type TrackingConfig struct {
 	PodLogs bool `json:"podLogs,omitempty"`
 
 	// +optional
-	FinalTracking bool `json:"finalTracking,omitempty"`
+	FinalTracking *bool `json:"finalTracking,omitempty"`
 }
 
 type ProvenanceConfig struct {
