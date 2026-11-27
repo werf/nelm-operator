@@ -110,6 +110,8 @@ func main() {
 		ColorMode: log.LogColorModeOff,
 	})
 
+	featgate.FeatGateTypescript.Enable()
+
 	if featgate.FeatGatePeriodicStackTraces.Enabled() {
 		go func() {
 			for {

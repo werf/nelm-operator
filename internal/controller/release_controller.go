@@ -446,7 +446,12 @@ func (r *ReleaseReconciler) reconcileInstall(ctx context.Context, rel *nelmv1alp
 		return r.handleFailure(ctx, rel, false, fmt.Errorf("resolve values: %w", err), preRel, false)
 	}
 
-	planOpts, err := r.buildPlanInstallOptions(rel, chartResult.ChartPath, tempDir, resolvedValues)
+	chartPath, err := source.TypescriptChartPath(chartResult.ChartPath, tempDir, typescriptIgnoreBundleJS(rel))
+	if err != nil {
+		return r.handleFailure(ctx, rel, false, fmt.Errorf("prepare chart: %w", err), preRel, false)
+	}
+
+	planOpts, err := r.buildPlanInstallOptions(rel, chartPath, tempDir, resolvedValues)
 	if err != nil {
 		return r.handleFailure(ctx, rel, false, fmt.Errorf("build plan install options: %w", err), preRel, false)
 	}
@@ -470,7 +475,7 @@ func (r *ReleaseReconciler) reconcileInstall(ctx context.Context, rel *nelmv1alp
 		return r.handleFailure(ctx, rel, false, fmt.Errorf("plan install: %w", planErr), preRel, false)
 	}
 
-	installOpts, err := r.buildInstallOptions(rel, chartResult.ChartPath, tempDir, resolvedValues)
+	installOpts, err := r.buildInstallOptions(rel, chartPath, tempDir, resolvedValues)
 	if err != nil {
 		return r.handleFailure(ctx, rel, false, fmt.Errorf("build install options: %w", err), preRel, false)
 	}

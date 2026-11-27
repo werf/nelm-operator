@@ -7,6 +7,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -19,7 +22,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/werf/logboek"
 	"github.com/werf/nelm/v2/pkg/action"
+	"github.com/werf/nelm/v2/pkg/featgate"
 
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
 	"github.com/werf/nelm-operator/internal/source"
@@ -144,5 +149,111 @@ data:
 
 	It("lets spec.values override the merged values", func() {
 		Expect(render(`{"env":"staging"}`)).To(Equal(map[string]any{"replicaCount": "3", "env": "staging"}))
+	})
+})
+
+var _ = Describe("TypeScript charts", func() {
+	configMapJS := func(from string) string {
+		return `Deno.writeTextFileSync("output.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: ts\ndata:\n  from: ` + from + `\n");` + "\n"
+	}
+
+	// ts/dist/bundle.js and ts/src/index.ts render different data, so the
+	// result shows which of them Nelm ran.
+	tsChartFiles := func(withBundle bool) map[string]string {
+		files := map[string]string{
+			"Chart.yaml": "apiVersion: v2\nname: ts-app\nversion: 1.0.0\ndependencies:\n- name: common\n  repository: file://../common\n  version: 1.0.0\n",
+			"Chart.lock": "dependencies:\n- name: common\n  repository: file://../common\n  version: 1.0.0\ndigest: sha256:0\n",
+			"charts/common-1.0.0.tgz": string(chartArchive("common", map[string]string{
+				"Chart.yaml": "apiVersion: v2\nname: common\nversion: 1.0.0\n",
+			})),
+			".helmignore":      "templates/\n",
+			"templates/a.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: template\n",
+			"ts/src/index.ts":  configMapJS("source"),
+		}
+		if withBundle {
+			files["ts/dist/bundle.js"] = configMapJS("bundle")
+		}
+
+		return files
+	}
+
+	BeforeEach(func() {
+		GinkgoT().Setenv(featgate.FeatGateTypescript.EnvVarName(), "true")
+	})
+
+	// renderFrom prepares the archive as the operator does and renders it,
+	// returning the data of the TypeScript ConfigMap and the names of all
+	// rendered resources.
+	renderFrom := func(files map[string]string, ignoreBundleJS bool) (any, []string) {
+		tempDir := GinkgoT().TempDir()
+		archivePath := filepath.Join(tempDir, "chart.tgz")
+		Expect(os.WriteFile(archivePath, chartArchive("ts-app", files), 0o644)).To(Succeed())
+
+		chartPath, err := source.TypescriptChartPath(archivePath, tempDir, ignoreBundleJS)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Without Deno on PATH, Nelm downloads its pinned Deno release into the
+		// user cache directory, like the operator does outside its image.
+		denoPath, _ := exec.LookPath("deno")
+		ctx := logboek.NewContext(context.Background(), logboek.DefaultLogger())
+		result, err := action.ChartRender(ctx, action.ChartRenderOptions{
+			Chart:            chartPath,
+			DenoBinaryPath:   denoPath,
+			IgnoreBundleJS:   ignoreBundleJS,
+			ReleaseName:      "ts-app",
+			ReleaseNamespace: "default",
+			OutputNoPrint:    true,
+			TempDirPath:      tempDir,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		var from any
+		names := make([]string, 0, len(result.Resources))
+		for _, res := range result.Resources {
+			names = append(names, res.Unstruct.GetName())
+			if res.Unstruct.GetName() == "ts" {
+				from = res.Unstruct.Object["data"].(map[string]any)["from"]
+			}
+		}
+
+		return from, names
+	}
+
+	It("renders ts/dist/bundle.js from the chart archive", func() {
+		from, names := renderFrom(tsChartFiles(true), false)
+		Expect(from).To(Equal("bundle"))
+		Expect(names).To(ConsistOf("ts", "template"))
+	})
+
+	It("rebuilds the bundle from ts/src with ignoreBundleJS", func() {
+		from, names := renderFrom(tsChartFiles(true), true)
+		Expect(from).To(Equal("source"))
+		Expect(names).To(ConsistOf("ts", "template"))
+	})
+
+	It("builds the bundle from ts/src when the chart has none", func() {
+		from, names := renderFrom(tsChartFiles(false), false)
+		Expect(from).To(Equal("source"))
+		Expect(names).To(ConsistOf("ts", "template"))
+	})
+
+	It("builds the bundle of a subchart stored as a directory", func() {
+		from, names := renderFrom(map[string]string{
+			"Chart.yaml":                   "apiVersion: v2\nname: ts-app\nversion: 1.0.0\n",
+			"charts/child/Chart.yaml":      "apiVersion: v2\nname: child\nversion: 1.0.0\n",
+			"charts/child/ts/src/index.ts": configMapJS("child"),
+		}, false)
+		Expect(from).To(Equal("child"))
+		Expect(names).To(ConsistOf("ts"))
+	})
+
+	It("passes a chart without TypeScript sources as the archive", func() {
+		tempDir := GinkgoT().TempDir()
+		archivePath := filepath.Join(tempDir, "chart.tgz")
+		Expect(os.WriteFile(archivePath, chartArchive("app", map[string]string{
+			"Chart.yaml": "apiVersion: v2\nname: app\nversion: 1.0.0\n",
+		}), 0o644)).To(Succeed())
+
+		Expect(source.TypescriptChartPath(archivePath, tempDir, true)).To(Equal(archivePath))
 	})
 })
