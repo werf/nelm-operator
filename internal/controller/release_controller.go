@@ -889,8 +889,14 @@ func (r *ReleaseReconciler) buildRuntimeOptions(rel *nelmv1alpha1.Release, tempD
 	}
 	opts.PatchesFiles = files
 
+	// Nelm defaults a zero limit for the install action, but install runs
+	// from a plan whose frozen runtime options replace that default. Inside
+	// releaseStorage the CRD defaults the limit, so 0 there is explicit and
+	// means unlimited.
 	if rel.Spec.ReleaseStorage != nil {
 		opts.ReleaseHistoryLimit = rel.Spec.ReleaseStorage.HistoryLimit
+	} else {
+		opts.ReleaseHistoryLimit = common.DefaultReleaseHistoryLimit
 	}
 
 	if rel.Spec.Install != nil {
