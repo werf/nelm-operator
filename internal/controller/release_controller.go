@@ -715,16 +715,17 @@ func (r *ReleaseReconciler) deleteReleaseNamespace(ctx context.Context, rel *nel
 		return fmt.Errorf("construct kube config: %w", err)
 	}
 
-	clientFactory, err := kube.NewClientFactory(ctx, kubeConfig)
+	staticClient, err := kube.NewStaticKubeClientFromKubeConfig(kubeConfig)
 	if err != nil {
-		return fmt.Errorf("construct kube client factory: %w", err)
+		return fmt.Errorf("construct kube client: %w", err)
 	}
 
-	nsMeta := spec.NewResourceMeta(namespace, "", namespace, "", schema.GroupVersionKind{Version: "v1", Kind: "Namespace"}, nil, nil)
-
-	return clientFactory.KubeClient().Delete(ctx, nsMeta, kube.KubeClientDeleteOptions{
-		PropagationPolicy: metav1.DeletePropagationForeground,
+	propagation := metav1.DeletePropagationForeground
+	err = staticClient.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{
+		PropagationPolicy: &propagation,
 	})
+
+	return client.IgnoreNotFound(err)
 }
 
 func (r *ReleaseReconciler) handleSuccess(ctx context.Context, rel *nelmv1alpha1.Release, releaseName, releaseNamespace string, captured *action.ReleaseGetResultRelease, refetch bool) (ctrl.Result, error) {
