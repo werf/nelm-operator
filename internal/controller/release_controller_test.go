@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -265,6 +266,21 @@ var _ = Describe("buildRuntimeOptions", func() {
 		Entry("defaults to 10 without releaseStorage", nil, 10),
 		Entry("keeps an explicit zero historyLimit as unlimited", &nelmv1alpha1.ReleaseStorageConfig{}, 0),
 		Entry("keeps an explicit historyLimit", &nelmv1alpha1.ReleaseStorageConfig{HistoryLimit: 3}, 3),
+	)
+})
+
+var _ = Describe("buildValidationOptions", func() {
+	DescribeTable("sets the schema cache lifetime",
+		func(validation *nelmv1alpha1.ValidationConfig, expected time.Duration) {
+			r := &ReleaseReconciler{}
+			rel := &nelmv1alpha1.Release{Spec: nelmv1alpha1.ReleaseSpec{Validation: validation}}
+			Expect(r.buildValidationOptions(rel).ValidationSchemaCacheLifetime).To(Equal(expected))
+		},
+		Entry("defaults to 48h without the validation block", nil, 48*time.Hour),
+		Entry("defaults to 48h when the validation block has no schemaCacheLifetime",
+			&nelmv1alpha1.ValidationConfig{Skip: []string{"kind=CustomThing"}}, 48*time.Hour),
+		Entry("keeps an explicit schemaCacheLifetime",
+			&nelmv1alpha1.ValidationConfig{SchemaCacheLifetime: metav1.Duration{Duration: time.Hour}}, time.Hour),
 	)
 })
 
