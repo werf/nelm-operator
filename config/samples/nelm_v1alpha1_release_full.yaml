@@ -25,7 +25,7 @@ spec:
   # https://fluxcd.io/flux/components/source/
   # Secrets in *From fields must be in the namespace of the Release.
   chart:
-    # A Helm repository, or an OCI registry if the url starts with oci://.
+    # A Helm repository. For a chart in an OCI registry, prefer oci.
     repo:
       url: https://stefanprodan.github.io/podinfo  # required
       name: podinfo                 # required, chart name in the repository
@@ -64,10 +64,13 @@ spec:
     #   proxySettingsFrom:          # Secret with address, username and password
     #     name: proxy
     #   insecure: false             # allow plain HTTP
-    #   ignore: ""                  # files to exclude, in .gitignore format
-    #   layerSelector:              # default: the first layer, extracted
+    #   ignore: "*.md"              # files to exclude, in .gitignore format; extract only
+    #   # Default: the Helm chart layer, copied as is, or extracted if ignore
+    #   # is set. Up to 1.0 the default was the first layer, extracted; to keep
+    #   # that, set only operation: extract.
+    #   layerSelector:
     #     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
-    #     operation: copy           # extract or copy
+    #     operation: copy           # copy, or extract to unpack and apply ignore
     #   verify:                     # verify the artifact signature
     #     provider: cosign          # cosign or notation
     #     secretRef:

@@ -8,6 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
+	"github.com/werf/nelm/v2/pkg/helm/pkg/registry"
 )
 
 func buildOCIRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nelmv1alpha1.Release) *sourcev1.OCIRepository {
@@ -24,6 +25,20 @@ func buildOCIRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nel
 			SemVer:       oci.SemVer,
 			SemverFilter: oci.SemverFilter,
 			Digest:       oci.Digest,
+		}
+	}
+
+	// A Release always needs a Helm chart, so pick its layer explicitly instead
+	// of FluxCD's default of extracting whatever layer comes first. FluxCD
+	// applies ignore only when extracting, so keep extracting if it is set.
+	layerSelector := oci.LayerSelector
+	if layerSelector == nil {
+		layerSelector = &sourcev1.OCILayerSelector{
+			MediaType: registry.ChartLayerMediaType,
+			Operation: sourcev1.OCILayerCopy,
+		}
+		if oci.Ignore != nil {
+			layerSelector.Operation = sourcev1.OCILayerExtract
 		}
 	}
 
@@ -44,7 +59,7 @@ func buildOCIRepository(sourceAPIGroup string, sourceAPIVersion string, rel *nel
 			ServiceAccountName: oci.ServiceAccountName,
 			Insecure:           oci.Insecure,
 			Ignore:             oci.Ignore,
-			LayerSelector:      oci.LayerSelector,
+			LayerSelector:      layerSelector,
 			Interval:           getNoneZeroDuration(oci.Interval, rel.Spec.Interval),
 			Timeout:            oci.Timeout,
 			Verify:             oci.Verify,
