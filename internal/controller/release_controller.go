@@ -63,6 +63,7 @@ const (
 
 type ReleaseReconciler struct {
 	client.Client
+	APIReader     client.Reader
 	Scheme        *runtime.Scheme
 	Config        config.OperatorConfig
 	EventRecorder record.EventRecorder
@@ -78,7 +79,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if !rel.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, &rel)
+		return ctrl.Result{}, r.reconcileDelete(ctx, &rel)
 	}
 
 	if rel.Spec.Suspend {
@@ -603,9 +604,9 @@ func (r *ReleaseReconciler) emitEvent(rel *nelmv1alpha1.Release, eventtype, reas
 	r.EventRecorder.Event(rel, eventtype, reason, message)
 }
 
-func (r *ReleaseReconciler) reconcileDelete(ctx context.Context, rel *nelmv1alpha1.Release) (ctrl.Result, error) {
+func (r *ReleaseReconciler) reconcileDelete(ctx context.Context, rel *nelmv1alpha1.Release) error {
 	if !controllerutil.ContainsFinalizer(rel, nelmv1alpha1.ReleaseFinalizerName) {
-		return ctrl.Result{}, nil
+		return nil
 	}
 
 	r.setCondition(rel, metav1.Condition{
@@ -617,44 +618,114 @@ func (r *ReleaseReconciler) reconcileDelete(ctx context.Context, rel *nelmv1alph
 	})
 	rel.Status.ObservedGeneration = rel.Generation
 	if err := r.Status().Update(ctx, rel); err != nil {
-		return ctrl.Result{}, fmt.Errorf("update uninstalling status: %w", err)
+		return fmt.Errorf("update uninstalling status: %w", err)
 	}
 
-	tempDir, err := os.MkdirTemp(r.Config.TempDir, "nelm-uninstall-*")
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("create temp dir: %w", err)
+	if timeout := rel.GetUninstallTimeout(); timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
-	defer func() { _ = os.RemoveAll(tempDir) }()
 
-	uninstallOpts, err := r.buildUninstallOptions(rel, tempDir)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("build uninstall options: %w", err)
-	}
 	releaseName := rel.Name
 	releaseNamespace := rel.GetReleaseNamespace()
 
-	if err := action.ReleaseUninstall(ctx, releaseName, releaseNamespace, uninstallOpts); err != nil {
-		return ctrl.Result{}, fmt.Errorf("uninstall release: %w", err)
+	var ns corev1.Namespace
+	err := r.APIReader.Get(ctx, client.ObjectKey{Name: releaseNamespace}, &ns)
+	if client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("get release namespace: %w", err)
 	}
+	nsExists := err == nil
+	nsTerminating := nsExists && !ns.DeletionTimestamp.IsZero()
 
-	rel.Status.LastAction = "uninstall"
-	if err := r.Status().Update(ctx, rel); err != nil {
-		return ctrl.Result{}, fmt.Errorf("update uninstall status: %w", err)
+	// An earlier attempt of this deletion already uninstalled. Running it again
+	// can fail for good once that attempt deleted the namespace, e.g. because the
+	// release service account lost its namespace-local permissions.
+	if rel.Status.LastAction != "uninstall" {
+		if err := r.uninstall(ctx, rel, releaseName, releaseNamespace, nsTerminating); err != nil {
+			return err
+		}
+
+		rel.Status.LastAction = "uninstall"
+		if err := r.Status().Update(ctx, rel); err != nil {
+			return fmt.Errorf("update uninstall status: %w", err)
+		}
 	}
 
 	if rel.Status.LastAppliedChartSource != nil {
 		if err := r.cleanupChartSourceRef(ctx, rel, rel.Status.LastAppliedChartSource); err != nil {
-			return ctrl.Result{}, fmt.Errorf("delete inline source ref on delete reconcile: %w", err)
+			return fmt.Errorf("delete inline source ref on delete reconcile: %w", err)
+		}
+	}
+
+	if deletesOwnNamespace(rel) && nsExists && !nsTerminating {
+		if err := r.deleteReleaseNamespace(ctx, rel, releaseNamespace); err != nil {
+			return fmt.Errorf("delete release namespace: %w", err)
 		}
 	}
 
 	patch := client.MergeFrom(rel.DeepCopy())
 	controllerutil.RemoveFinalizer(rel, nelmv1alpha1.ReleaseFinalizerName)
 	if err := r.Patch(ctx, rel, patch); err != nil {
-		return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
+		return fmt.Errorf("remove finalizer: %w", err)
 	}
 
-	return ctrl.Result{}, nil
+	return nil
+}
+
+func (r *ReleaseReconciler) uninstall(ctx context.Context, rel *nelmv1alpha1.Release, releaseName, releaseNamespace string, nsTerminating bool) error {
+	tempDir, err := os.MkdirTemp(r.Config.TempDir, "nelm-uninstall-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	uninstallOpts, err := r.buildUninstallOptions(rel, tempDir)
+	if err != nil {
+		return fmt.Errorf("build uninstall options: %w", err)
+	}
+
+	// Nelm gets or creates its lock ConfigMap in the release namespace, and a
+	// terminating namespace rejects the create. An existing one is still used, as
+	// someone may hold the lock.
+	if nsTerminating {
+		var lockConfigMap corev1.ConfigMap
+		lockErr := r.APIReader.Get(ctx, client.ObjectKey{Namespace: releaseNamespace, Name: common.LockConfigMapName}, &lockConfigMap)
+		if client.IgnoreNotFound(lockErr) != nil {
+			return fmt.Errorf("get release lock config map: %w", lockErr)
+		}
+		uninstallOpts.LegacyNoReleaseLock = apierrors.IsNotFound(lockErr)
+	}
+
+	if err := action.ReleaseUninstall(ctx, releaseName, releaseNamespace, uninstallOpts); err != nil {
+		return fmt.Errorf("uninstall release: %w", err)
+	}
+
+	return nil
+}
+
+// deleteReleaseNamespace deletes the namespace the way Nelm does with
+// DeleteReleaseNamespace, as the same user, but does not wait for it to go away.
+func (r *ReleaseReconciler) deleteReleaseNamespace(ctx context.Context, rel *nelmv1alpha1.Release, namespace string) error {
+	kubeConfig, err := kube.NewKubeConfig(ctx, kube.KubeConfigOptions{
+		KubeConnectionOptions: r.buildKubeConnectionOptions(rel),
+		KubeContextNamespace:  namespace,
+	})
+	if err != nil {
+		return fmt.Errorf("construct kube config: %w", err)
+	}
+
+	staticClient, err := kube.NewStaticKubeClientFromKubeConfig(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("construct kube client: %w", err)
+	}
+
+	propagation := metav1.DeletePropagationForeground
+	err = staticClient.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{
+		PropagationPolicy: &propagation,
+	})
+
+	return client.IgnoreNotFound(err)
 }
 
 func (r *ReleaseReconciler) handleSuccess(ctx context.Context, rel *nelmv1alpha1.Release, releaseName, releaseNamespace string, captured *action.ReleaseGetResultRelease, refetch bool) (ctrl.Result, error) {
@@ -1116,13 +1187,21 @@ func (r *ReleaseReconciler) buildUninstallOptions(rel *nelmv1alpha1.Release, tem
 
 	if rel.Spec.Uninstall != nil {
 		un := rel.Spec.Uninstall
-		opts.DeleteReleaseNamespace = un.DeleteNamespace
+		opts.DeleteReleaseNamespace = un.DeleteNamespace && !deletesOwnNamespace(rel)
 		opts.DefaultDeletePropagation = un.DeletePropagation
 		opts.NoRemoveManualChanges = un.NoRemoveManualChanges
 		opts.DefaultPatchesDisable = un.NoDefaultPatches
 	}
 
 	return opts, nil
+}
+
+// deletesOwnNamespace reports whether uninstall must delete the namespace the
+// Release itself lives in. Nelm would wait for that namespace to disappear, which
+// cannot happen while the Release still carries its finalizer, so the operator
+// deletes it itself without waiting.
+func deletesOwnNamespace(rel *nelmv1alpha1.Release) bool {
+	return rel.Spec.Uninstall != nil && rel.Spec.Uninstall.DeleteNamespace && rel.GetReleaseNamespace() == rel.Namespace
 }
 
 func (r *ReleaseReconciler) setCondition(rel *nelmv1alpha1.Release, condition metav1.Condition) {

@@ -350,6 +350,38 @@ var _ = Describe("buildUninstallOptions", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(opts.DefaultPatchesDisable).To(BeTrue())
 	})
+
+	It("lets nelm delete a target namespace other than the Release's own", func() {
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+			Spec: nelmv1alpha1.ReleaseSpec{
+				TargetNamespace: "app",
+				Uninstall:       &nelmv1alpha1.UninstallConfig{DeleteNamespace: true},
+			},
+		}
+		opts, err := r.buildUninstallOptions(rel, GinkgoT().TempDir())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.DeleteReleaseNamespace).To(BeTrue())
+	})
+
+	DescribeTable("does not let nelm delete the Release's own namespace",
+		func(targetNamespace string) {
+			r := &ReleaseReconciler{}
+			rel := &nelmv1alpha1.Release{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "app"},
+				Spec: nelmv1alpha1.ReleaseSpec{
+					TargetNamespace: targetNamespace,
+					Uninstall:       &nelmv1alpha1.UninstallConfig{DeleteNamespace: true},
+				},
+			}
+			opts, err := r.buildUninstallOptions(rel, GinkgoT().TempDir())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(opts.DeleteReleaseNamespace).To(BeFalse())
+		},
+		Entry("without targetNamespace", ""),
+		Entry("with targetNamespace set to the Release's namespace", "app"),
+	)
 })
 
 var _ = Describe("Reconcile spec.suspend", func() {

@@ -360,8 +360,9 @@ spec:
     noDefaultPatches: false
   uninstall:
     timeout: 30m                    # default: spec.timeout
-    # Delete the target namespace after uninstall, with everything in it. Do
-    # not use it if the Release itself is in that namespace.
+    # Delete the target namespace after uninstall, with everything in it. If the
+    # Release itself is in that namespace, the Release is removed without
+    # waiting for the namespace to finish terminating.
     deleteNamespace: false
     deletePropagation: Background
     noRemoveManualChanges: false
