@@ -360,6 +360,62 @@ var _ = Describe("Manager", Ordered, func() {
 			}, 5*time.Minute).Should(Succeed())
 		})
 	})
+
+	Context("Release with uninstall.deleteNamespace in its own namespace", Ordered, func() {
+		const ownNamespace = "nelm-operator-e2e-own"
+
+		AfterAll(func() {
+			cmd := exec.Command("kubectl", "delete", "ns", ownNamespace, "--ignore-not-found=true", "--wait=false")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should install the chart and report Ready", func() {
+			cmd := exec.Command("kubectl", "create", "ns", ownNamespace)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create the namespace")
+
+			manifest := fmt.Sprintf(`
+apiVersion: nelm.werf.io/v1alpha1
+kind: Release
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  chart:
+    repo:
+      url: https://stefanprodan.github.io/podinfo
+      name: podinfo
+      version: "%s"
+  uninstall:
+    deleteNamespace: true
+`, releaseName, ownNamespace, podinfoChartVersion)
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(manifest)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply the Release")
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "release", releaseName, "-n", ownNamespace,
+					"-o", `jsonpath={.status.conditions[?(@.type=="Ready")].status}`)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(output)).To(Equal("True"))
+			}, 5*time.Minute).Should(Succeed())
+		})
+
+		It("should delete the Release and its namespace", func() {
+			cmd := exec.Command("kubectl", "delete", "release", releaseName, "-n", ownNamespace, "--timeout=3m")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete the Release")
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "ns", ownNamespace, "--ignore-not-found", "-o", "name")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(output)).To(BeEmpty())
+			}, 3*time.Minute).Should(Succeed())
+		})
+	})
 })
 
 // applyPodinfoRelease creates or updates the Release used by the lifecycle specs.
