@@ -23,10 +23,9 @@ import (
 // ChartResult is the outcome of resolving a chart source: a local path to the
 // downloaded chart artifact and the source revision it was produced from.
 type ChartResult struct {
-	ChartPath   string
-	Digest      string
-	Revision    string
-	ValuesFiles []string
+	ChartPath string
+	Digest    string
+	Revision  string
 }
 
 // Resolve chart from Release spec.chartRef.
@@ -129,25 +128,15 @@ func extractArtifact(ctx context.Context, obj *unstructured.Unstructured, tempDi
 	revision, _, _ := unstructured.NestedString(obj.Object, "status", "artifact", "revision")
 	digest, _, _ := unstructured.NestedString(obj.Object, "status", "artifact", "digest")
 
-	// TODO: verify ability to use custom values files embedded into chart artifact.
-	var valuesFiles []string
-
-	if files, found, err := unstructured.NestedStringSlice(obj.Object, "spec", "valuesFiles"); err != nil {
-		return nil, fmt.Errorf("read .spec.valuesFiles: %w", err)
-	} else if found {
-		valuesFiles = files
-	}
-
 	chartPath, err := downloadArtifact(ctx, artifactURL, tempDir, httpRetry, httpTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("download chart artifact: %w", err)
 	}
 
 	return &ChartResult{
-		ChartPath:   chartPath,
-		Digest:      digest,
-		Revision:    revision,
-		ValuesFiles: valuesFiles,
+		ChartPath: chartPath,
+		Digest:    digest,
+		Revision:  revision,
 	}, nil
 }
 

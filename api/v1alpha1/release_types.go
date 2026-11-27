@@ -230,7 +230,6 @@ type GitRepositoryChartSource struct {
 	// +optional
 	ValuesFiles []string `json:"valuesFiles,omitempty"`
 
-	// TODO: double check if we support such case with nelm.
 	// IgnoreMissingValuesFiles controls whether to silently ignore missing values files rather than failing.
 	// +optional
 	IgnoreMissingValuesFiles bool `json:"ignoreMissingValuesFiles,omitempty"`
@@ -437,7 +436,6 @@ type HelmRepositoryChartSource struct {
 	// +optional
 	ValuesFiles []string `json:"valuesFiles,omitempty"`
 
-	// TODO: double check if we support such case with nelm.
 	// IgnoreMissingValuesFiles controls whether to silently ignore missing values files rather than failing.
 	// +optional
 	IgnoreMissingValuesFiles bool `json:"ignoreMissingValuesFiles,omitempty"`

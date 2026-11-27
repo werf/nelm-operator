@@ -209,9 +209,10 @@ spec:
       #   provider: cosign          # cosign or notation
       #   secretRef:
       #     name: cosign-public-keys
-      # Not supported yet: use values and valuesFrom instead.
+      # Values files from the chart, merged in order, replace the chart's
+      # default values; list values.yaml to keep them. Default: none.
       # valuesFiles: [values.yaml, values-prod.yaml]
-      # ignoreMissingValuesFiles: false
+      # ignoreMissingValuesFiles: false  # skip listed files the chart lacks
 
     # A chart stored as an OCI artifact.
     # oci:
@@ -272,9 +273,9 @@ spec:
     #   # Build a new chart when its version changes (ChartVersion) or on every
     #   # new commit (Revision).
     #   reconcileStrategy: ChartVersion
-    #   # Not supported yet: use values and valuesFrom instead.
-    #   # valuesFiles: [values.yaml, values-prod.yaml]
-    #   # ignoreMissingValuesFiles: false
+    #   # As in repo, but relative to the repository root.
+    #   valuesFiles: [charts/podinfo/values.yaml, charts/podinfo/values-prod.yaml]
+    #   ignoreMissingValuesFiles: false
 
     # A chart in an S3-compatible bucket.
     # bucket:
@@ -299,9 +300,9 @@ spec:
     #     provider: aws             # aws, or ldap with the generic provider
     #     endpoint: https://sts.amazonaws.com
     #   reconcileStrategy: ChartVersion  # ChartVersion or Revision
-    #   # Not supported yet: use values and valuesFrom instead.
-    #   # valuesFiles: [values.yaml, values-prod.yaml]
-    #   # ignoreMissingValuesFiles: false
+    #   # As in repo, but relative to the bucket root.
+    #   valuesFiles: [podinfo/values.yaml, podinfo/values-prod.yaml]
+    #   ignoreMissingValuesFiles: false
 
   # Instead of chart: a Flux source object that you manage yourself.
   # chartRef:
@@ -309,8 +310,9 @@ spec:
   #   name: my-chart                # required
   #   namespace: flux-system        # default: the namespace of the Release
 
-  # Values, merged in this order, later ones win: values.yaml of the chart,
-  # values, then valuesFrom.
+  # Values, merged in this order, later ones win: values.yaml of the chart
+  # (the merged valuesFiles if the chart source sets them), values, then
+  # valuesFrom.
   values:
     replicaCount: 2
   valuesFrom:
@@ -318,7 +320,7 @@ spec:
       name: myapp-values            # required
       dataKey: values.yaml          # key holding the values file
       optional: false               # skip it instead of failing if missing
-  noDefaultValues: false            # ignore values.yaml of the chart
+  noDefaultValues: false            # ignore values.yaml of the chart, valuesFiles too
   # key=json pairs to set in the root template context $. Meant for tools that
   # generate Release objects; use values otherwise.
   setRootContextJSON:
