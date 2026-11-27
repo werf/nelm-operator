@@ -70,16 +70,42 @@ func createTestNamespace() string {
 	return ns.Name
 }
 
-func writeConfigMapChart(dir string) string {
+func writeChart(dir, template string) string {
 	chartPath := filepath.Join(dir, "chart")
 	Expect(os.MkdirAll(filepath.Join(chartPath, "templates"), 0o755)).To(Succeed())
-	Expect(os.WriteFile(filepath.Join(chartPath, "Chart.yaml"), []byte("apiVersion: v2\nname: history\nversion: 0.1.0\n"), 0o644)).To(Succeed())
-	Expect(os.WriteFile(filepath.Join(chartPath, "templates", "cm.yaml"), []byte(
-		"apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}\ndata:\n  rev: {{ .Values.rev | quote }}\n",
-	), 0o644)).To(Succeed())
+	Expect(os.WriteFile(filepath.Join(chartPath, "Chart.yaml"), []byte("apiVersion: v2\nname: test\nversion: 0.1.0\n"), 0o644)).To(Succeed())
+	Expect(os.WriteFile(filepath.Join(chartPath, "templates", "resource.yaml"), []byte(template), 0o644)).To(Succeed())
 
 	return chartPath
 }
+
+const configMapTemplate = `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}
+data:
+  rev: {{ .Values.rev | quote }}
+`
+
+// Nothing runs the Deployment controller in envtest, so this Deployment never
+// becomes ready.
+const deploymentTemplate = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: app
+          image: registry.example.com/app:1
+`
 
 var _ = Describe("Release install through a plan", func() {
 	const upgrades = 12
@@ -87,7 +113,7 @@ var _ = Describe("Release install through a plan", func() {
 	DescribeTable("trims release history",
 		func(storage *nelmv1alpha1.ReleaseStorageConfig, expectedRevisions int) {
 			dir := GinkgoT().TempDir()
-			chartPath := writeConfigMapChart(dir)
+			chartPath := writeChart(dir, configMapTemplate)
 
 			r := &ReleaseReconciler{}
 			rel := &nelmv1alpha1.Release{
@@ -110,4 +136,23 @@ var _ = Describe("Release install through a plan", func() {
 		Entry("to 10 revisions when spec.releaseStorage is not set", nil, common.DefaultReleaseHistoryLimit),
 		Entry("never when historyLimit is explicitly 0", &nelmv1alpha1.ReleaseStorageConfig{HistoryLimit: 0}, upgrades),
 	)
+
+	It("does not wait for an unready Deployment on install when finalTracking is false", func() {
+		chartPath := writeChart(GinkgoT().TempDir(), deploymentTemplate)
+
+		finalTracking := false
+		r := &ReleaseReconciler{}
+		rel := &nelmv1alpha1.Release{
+			ObjectMeta: metav1.ObjectMeta{Name: "no-final-tracking", Namespace: createTestNamespace()},
+			Spec: nelmv1alpha1.ReleaseSpec{
+				Tracking: &nelmv1alpha1.TrackingConfig{
+					// Fails the spec fast instead of hanging if Nelm waits for the Deployment.
+					ReadinessTimeout: metav1.Duration{Duration: 5 * time.Second},
+					FinalTracking:    &finalTracking,
+				},
+			},
+		}
+
+		installWithPlan(r, rel, chartPath, &values.ResolvedValues{})
+	})
 })

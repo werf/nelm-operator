@@ -400,10 +400,9 @@ spec:
     readinessTimeout: 5m            # default: none
     creationTimeout: 5m             # default: none
     deletionTimeout: 5m             # default: none
-    # Wait for resources nothing else depends on, during rollback and
-    # uninstall. Default: on without the tracking block, off with it. Install
-    # and upgrade always wait for them.
-    finalTracking: false
+    # Wait for resources nothing else depends on to become ready or deleted.
+    # Default: true.
+    finalTracking: true
     podLogs: false                  # has no effect yet
 
   # Validating rendered resources against Kubernetes JSON schemas.

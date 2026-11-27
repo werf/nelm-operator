@@ -844,7 +844,9 @@ func (r *ReleaseReconciler) buildTrackingOptions(rel *nelmv1alpha1.Release) comm
 		opts.TrackCreationTimeout = rel.Spec.Tracking.CreationTimeout.Duration
 		opts.TrackDeletionTimeout = rel.Spec.Tracking.DeletionTimeout.Duration
 		opts.NoPodLogs = !rel.Spec.Tracking.PodLogs
-		opts.NoFinalTracking = !rel.Spec.Tracking.FinalTracking
+		if rel.Spec.Tracking.FinalTracking != nil {
+			opts.NoFinalTracking = !*rel.Spec.Tracking.FinalTracking
+		}
 	}
 
 	return opts
@@ -1030,6 +1032,7 @@ func (r *ReleaseReconciler) buildPlanInstallOptions(rel *nelmv1alpha1.Release, c
 		ErrorIfChangesPlanned:   true,
 		IgnoreBundleJS:          typescriptIgnoreBundleJS(rel),
 		NetworkParallelism:      r.Config.NetworkParallelism,
+		NoFinalTracking:         r.buildTrackingOptions(rel).NoFinalTracking,
 		TemplatesAllowDNS:       installTemplatesAllowDNS(rel),
 		TempDirPath:             tempDir,
 		Timeout:                 rel.GetInstallTimeout(),

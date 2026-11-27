@@ -35,6 +35,7 @@ import (
 	"github.com/werf/nelm/v2/pkg/resource/spec"
 
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
+	"github.com/werf/nelm-operator/internal/values"
 )
 
 var _ = Describe("ownershipLabels", func() {
@@ -266,6 +267,27 @@ var _ = Describe("buildRuntimeOptions", func() {
 		Entry("defaults to 10 without releaseStorage", nil, 10),
 		Entry("keeps an explicit zero historyLimit as unlimited", &nelmv1alpha1.ReleaseStorageConfig{}, 0),
 		Entry("keeps an explicit historyLimit", &nelmv1alpha1.ReleaseStorageConfig{HistoryLimit: 3}, 3),
+	)
+})
+
+var _ = Describe("buildTrackingOptions", func() {
+	enabled, disabled := true, false
+
+	DescribeTable("sets final tracking",
+		func(tracking *nelmv1alpha1.TrackingConfig, noFinalTracking bool) {
+			r := &ReleaseReconciler{}
+			rel := &nelmv1alpha1.Release{Spec: nelmv1alpha1.ReleaseSpec{Tracking: tracking}}
+			Expect(r.buildTrackingOptions(rel).NoFinalTracking).To(Equal(noFinalTracking))
+
+			planOpts, err := r.buildPlanInstallOptions(rel, "", GinkgoT().TempDir(), &values.ResolvedValues{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(planOpts.NoFinalTracking).To(Equal(noFinalTracking))
+		},
+		Entry("enabled without the tracking block", nil, false),
+		Entry("enabled when the tracking block has no finalTracking",
+			&nelmv1alpha1.TrackingConfig{ReadinessTimeout: metav1.Duration{Duration: time.Minute}}, false),
+		Entry("enabled when finalTracking is true", &nelmv1alpha1.TrackingConfig{FinalTracking: &enabled}, false),
+		Entry("disabled when finalTracking is false", &nelmv1alpha1.TrackingConfig{FinalTracking: &disabled}, true),
 	)
 })
 
