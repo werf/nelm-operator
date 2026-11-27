@@ -1,12 +1,18 @@
 package source
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,6 +23,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	nelmv1alpha1 "github.com/werf/nelm-operator/api/v1alpha1"
+	"github.com/werf/nelm/v2/pkg/common"
+	"github.com/werf/nelm/v2/pkg/helm/pkg/chart/loader/archive"
+	chartutil "github.com/werf/nelm/v2/pkg/helm/pkg/chart/v2/util"
 	"github.com/werf/nelm/v2/pkg/util"
 )
 
@@ -197,6 +206,112 @@ func downloadArtifact(ctx context.Context, artifactURL string, tempDir string, m
 	}
 
 	return chartPath, nil
+}
+
+// TypescriptChartPath returns the chart path to give Nelm. Nelm builds the
+// TypeScript bundle of a chart only from a chart directory, so when a bundle
+// is missing or must be rebuilt, the archive is unpacked and the path of the
+// chart directory is returned.
+func TypescriptChartPath(chartPath string, tempDir string, ignoreBundleJS bool) (string, error) {
+	build, err := typescriptBuildNeeded(chartPath, ignoreBundleJS)
+	if err != nil {
+		return "", err
+	}
+
+	if !build {
+		return chartPath, nil
+	}
+
+	dir, err := os.MkdirTemp(tempDir, "chart-*")
+	if err != nil {
+		return "", fmt.Errorf("create chart directory: %w", err)
+	}
+
+	if err := chartutil.ExpandFile(dir, chartPath); err != nil {
+		return "", fmt.Errorf("extract chart archive: %w", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("read chart directory: %w", err)
+	}
+
+	if len(entries) != 1 || !entries[0].IsDir() {
+		return "", fmt.Errorf("extract chart archive: expected one chart directory, got %d entries", len(entries))
+	}
+
+	chartDir := filepath.Join(dir, entries[0].Name())
+
+	// Nelm loads a chart directory unlike an archive: it applies .helmignore
+	// again and resolves the dependencies in the lock files, from local paths
+	// or the network. Drop these files, the packaged dependencies are in
+	// charts/ already.
+	for _, name := range []string{".helmignore", "Chart.lock", "requirements.lock"} {
+		if err := os.Remove(filepath.Join(chartDir, name)); err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("remove %s from chart directory: %w", name, err)
+		}
+	}
+
+	return chartDir, nil
+}
+
+// chartFilePrefix matches the path of the top chart in its archive (empty)
+// and of the subcharts stored as directories in it.
+var chartFilePrefix = regexp.MustCompile(`^(charts/[^/]+/)*$`)
+
+// typescriptBuildNeeded reports whether the archive has a chart or a
+// directory subchart with TypeScript sources whose bundle is missing or must
+// be rebuilt.
+func typescriptBuildNeeded(chartPath string, ignoreBundleJS bool) (bool, error) {
+	f, err := os.Open(chartPath)
+	if err != nil {
+		return false, fmt.Errorf("open chart archive: %w", err)
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return false, fmt.Errorf("read chart archive: %w", err)
+	}
+
+	// Nelm rejects charts whose files exceed this size when it loads them. The
+	// tar headers come on top, so allow twice as much before giving up.
+	limited := &io.LimitedReader{R: gz, N: 2 * archive.MaxDecompressedChartSize}
+	tr := tar.NewReader(limited)
+
+	files := map[string]bool{}
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) && limited.N == 0 {
+			return false, fmt.Errorf("read chart archive: larger than %d bytes", 2*archive.MaxDecompressedChartSize)
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return false, fmt.Errorf("read chart archive: %w", err)
+		}
+
+		// Drop the top directory named after the chart.
+		if _, name, found := strings.Cut(hdr.Name, "/"); found && strings.Contains(name, common.ChartTSSourceDir) {
+			files[name] = true
+		}
+	}
+
+	for name := range files {
+		prefix, isTS := strings.CutSuffix(name, common.ChartTSSourceDir+common.ChartTSEntryPointTS)
+		if !isTS {
+			prefix, isTS = strings.CutSuffix(name, common.ChartTSSourceDir+common.ChartTSEntryPointJS)
+		}
+
+		if isTS && chartFilePrefix.MatchString(prefix) && (ignoreBundleJS || !files[prefix+common.ChartTSBundleFile]) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 type SourceNotReadyError struct {

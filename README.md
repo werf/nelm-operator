@@ -140,7 +140,8 @@ The operator has cluster-wide permissions to create any resource, so treat the
 ability to create a `Release` as equivalent to cluster-admin. To limit what a
 release can deploy, set `spec.serviceAccountName`: Nelm then deploys as that
 ServiceAccount. This is not a tenancy boundary: the operator still reads the
-referenced ConfigMaps, Secrets and chart sources with its own permissions.
+referenced ConfigMaps, Secrets and chart sources with its own permissions, and
+runs the code of TypeScript charts in its own Pod.
 
 ## Configuration
 
@@ -423,8 +424,13 @@ spec:
   releaseStorage:
     historyLimit: 10                # revisions to keep; without releaseStorage, all are kept
 
+  # TypeScript charts, with ts/src/index.ts or index.js, are rendered with the
+  # Deno binary shipped in the image, from ts/dist/bundle.js. A chart without
+  # the bundle has it built on every reconcile, and Deno then fetches the
+  # imports of the chart, such as npm packages, so the operator needs access
+  # to them. Subcharts packed as charts/*.tgz are never rebuilt.
   typescript:
-    ignoreBundleJS: false           # has no effect: TypeScript charts are not rendered yet
+    ignoreBundleJS: false           # build the bundle even if the chart has one
 
   # Has no effect yet. Use verify of the chart source to verify signatures.
   # provenance:
