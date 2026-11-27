@@ -441,7 +441,7 @@ func (r *ReleaseReconciler) reconcileInstall(ctx context.Context, rel *nelmv1alp
 	releaseName := rel.Name
 	releaseNamespace := rel.GetReleaseNamespace()
 
-	resolvedValues, err := values.Resolve(ctx, r.Client, rel, chartResult.ValuesFiles, tempDir)
+	resolvedValues, err := values.Resolve(ctx, r.Client, rel, tempDir)
 	if err != nil {
 		return r.handleFailure(ctx, rel, false, fmt.Errorf("resolve values: %w", err), preRel, false)
 	}
