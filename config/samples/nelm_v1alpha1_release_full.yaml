@@ -252,7 +252,7 @@ spec:
     schemaCacheLifetime: 48h
 
   releaseStorage:
-    historyLimit: 10                # revisions to keep; without releaseStorage, all are kept
+    historyLimit: 10                # revisions to keep, 0 = all; default 10, also without releaseStorage
 
   typescript:
     ignoreBundleJS: false           # has no effect: TypeScript charts are not rendered yet

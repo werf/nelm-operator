@@ -253,6 +253,19 @@ var _ = Describe("buildRuntimeOptions", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(opts.DefaultPatchesDisable).To(BeTrue())
 	})
+
+	DescribeTable("sets the release history limit",
+		func(storage *nelmv1alpha1.ReleaseStorageConfig, expected int) {
+			r := &ReleaseReconciler{}
+			rel := &nelmv1alpha1.Release{Spec: nelmv1alpha1.ReleaseSpec{ReleaseStorage: storage}}
+			opts, err := r.buildRuntimeOptions(rel, GinkgoT().TempDir())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(opts.ReleaseHistoryLimit).To(Equal(expected))
+		},
+		Entry("defaults to 10 without releaseStorage", nil, 10),
+		Entry("keeps an explicit zero historyLimit as unlimited", &nelmv1alpha1.ReleaseStorageConfig{}, 0),
+		Entry("keeps an explicit historyLimit", &nelmv1alpha1.ReleaseStorageConfig{HistoryLimit: 3}, 3),
+	)
 })
 
 var _ = Describe("buildRollbackOptions", func() {
